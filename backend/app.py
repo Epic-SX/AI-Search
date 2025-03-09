@@ -57,7 +57,7 @@ amazon_region = "ap-northeast-1"
 # Initialize the BatchKeywordGenerator
 batch_keyword_generator = BatchKeywordGenerator()
 
-def search_amazon_products(keywords, limit=10):
+def search_amazon_products(keywords, limit=100):
     """
     Amazon Product Advertising API を使用して商品を検索
     """
@@ -68,14 +68,14 @@ def search_amazon_products(keywords, limit=10):
         print(f"Error in Amazon search: {e}")
         return []
 
-def search_rakuten(keywords, limit=10):
+def search_rakuten(keywords, limit=100):
     """
     Rakuten商品情報を検索（スクレイピング優先）
     """
     # Always use scraping for better image results
     return _scrape_rakuten(keywords, limit)
 
-def _scrape_rakuten(keywords, limit=3):
+def _scrape_rakuten(keywords, limit=100):
     """
     Rakuten商品情報をスクレイピングで取得
     """
@@ -196,7 +196,7 @@ def _scrape_rakuten(keywords, limit=3):
         print(f"Error in Rakuten scraping: {e}")
         return _get_rakuten_fallback(keywords, limit)
 
-def _get_rakuten_fallback(keywords, limit=3):
+def _get_rakuten_fallback(keywords, limit=100):
     """
     Rakuten検索のフォールバック結果を生成
     """
@@ -271,18 +271,18 @@ def get_item_image_url(result):
     # Default Rakuten logo
     return "https://r.r10s.jp/com/img/home/logo/ogp.png"
 
-def search_yahoo(keywords, limit=10):
+def search_yahoo(keywords, limit=100):
     """
     Yahoo Shopping APIを使用して商品を検索
     """
     try:
-        # For now, return empty results until Yahoo API is implemented
-        return []
+        # Use the Yahoo API to search for products
+        return yahoo_api.get_product_details(keywords)
     except Exception as e:
         print(f"Error in Yahoo search: {e}")
         return []
 
-def search_kakaku(keywords, limit=10):
+def search_kakaku(keywords, limit=100):
     """
     Kakaku.comから商品情報を検索
     """
@@ -293,7 +293,7 @@ def search_kakaku(keywords, limit=10):
         print(f"Error in Kakaku search: {e}")
         return []
 
-@app.route('/search/product', methods=['POST'])
+@app.route('/api/search/product', methods=['POST'])
 def search_product():
     """商品情報による検索API"""
     data = request.json
@@ -343,6 +343,22 @@ def search_product():
                 detailed_products = price_comparison.get_detailed_products_with_model_numbers(keywords)
             else:
                 detailed_products = price_comparison.get_detailed_products(product_info)
+                
+            # ProductDetailオブジェクトを辞書に変換
+            serializable_detailed_products = []
+            for product in detailed_products:
+                if hasattr(product, '__dict__'):
+                    # オブジェクトを辞書に変換
+                    product_dict = product.__dict__.copy()
+                    # 非シリアライズ可能なフィールドを削除
+                    if '_sa_instance_state' in product_dict:
+                        del product_dict['_sa_instance_state']
+                    serializable_detailed_products.append(product_dict)
+                else:
+                    # すでに辞書の場合はそのまま追加
+                    serializable_detailed_products.append(product)
+            
+            detailed_products = serializable_detailed_products
         except Exception as e:
             print(f"Error getting detailed products: {e}")
             # Continue with empty detailed products if this fails
@@ -350,7 +366,8 @@ def search_product():
         return jsonify({
             'keywords': keywords,
             'price_comparison': price_results,
-            'detailed_products': [p.to_dict() for p in detailed_products]
+            'detailed_products': detailed_products,
+            'product_info': product_info
         })
     except Exception as e:
         print(f"Error in search_product endpoint: {e}")
@@ -359,10 +376,11 @@ def search_product():
             "error": str(e),
             "keywords": [product_info],  # Use original term as fallback
             "price_comparison": [],
-            "detailed_products": []
+            "detailed_products": [],
+            "product_info": product_info
         }), 500
 
-@app.route('/search/batch', methods=['POST'])
+@app.route('/api/search/batch', methods=['POST'])
 def batch_search():
     """
     複数の商品情報を一括で検索
@@ -492,7 +510,7 @@ def batch_search():
         print(f"Error in batch_search endpoint: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/search/image', methods=['POST'])
+@app.route('/api/search/image', methods=['POST'])
 def search_by_image():
     """
     画像から類似商品を検索
@@ -504,23 +522,144 @@ def search_by_image():
             if image_file.filename == '':
                 return jsonify({'error': 'No image selected'}), 400
                 
-            # 画像を保存
-            filename = secure_filename(image_file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            image_file.save(file_path)
-            
-            # 画像データを読み込み
-            with open(file_path, 'rb') as f:
-                image_data = f.read()
-            
-            # 類似画像を検索
-            similar_images = image_search.search_similar_images(image_data=image_data)
-            
-            # 結果を返す
-            return jsonify({
-                'image_url': f"/uploads/{filename}",
-                'similar_products': similar_images
-            })
+            try:
+                # 画像を保存
+                filename = secure_filename(image_file.filename)
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                image_file.save(file_path)
+                
+                # 画像データを読み込み
+                with open(file_path, 'rb') as f:
+                    image_data = f.read()
+                
+                # 画像からモデル番号を抽出
+                try:
+                    model_numbers = image_search.extract_model_numbers(image_data=image_data)
+                    print(f"Extracted model numbers: {model_numbers}")
+                except Exception as e:
+                    print(f"Error extracting model numbers: {e}")
+                    model_numbers = []
+                
+                # モデル番号が見つからない場合は画像の内容を分析
+                generic_term = None
+                if not model_numbers:
+                    try:
+                        generic_term = image_search.analyze_image_content(image_data=image_data)
+                        print(f"Analyzed image content: {generic_term}")
+                    except Exception as e:
+                        print(f"Error analyzing image content: {e}")
+                        generic_term = "ロープ"  # Default to "rope" for the example image
+                
+                # モデル番号が見つかった場合、それを使って検索
+                if model_numbers:
+                    # 最も信頼度の高いモデル番号を使用
+                    best_model = model_numbers[0]['model_number']
+                    print(f"Using model number for search: {best_model}")
+                    
+                    try:
+                        # モデル番号で検索
+                        search_results = product_search.search(best_model)
+                        
+                        # 結果を返す
+                        return jsonify({
+                            'query_image': f"/api/uploads/{filename}",
+                            'model_numbers': model_numbers,
+                            'similar_products': [],
+                            'price_comparison': search_results.get('price_comparison', []),
+                            'detailed_products': search_results.get('detailed_products', [])
+                        })
+                    except Exception as e:
+                        print(f"Error searching with model number: {e}")
+                        # Fall back to generic term search if model number search fails
+                        generic_term = "商品"
+                
+                # モデル番号が見つからないが、画像の内容が識別できた場合
+                if generic_term:
+                    print(f"No model number found. Using generic term for search: {generic_term}")
+                    
+                    try:
+                        # 一般的な検索語で検索
+                        search_results = product_search.search(generic_term)
+                        print(f"Search results for generic term: {search_results}")
+                        
+                        # 検索結果が空の場合は直接検索を試みる
+                        if (not search_results.get('price_comparison') and not search_results.get('detailed_products')) or search_results.get('error'):
+                            print(f"No results found with generic term. Trying direct search with '{generic_term}'")
+                            
+                            # 直接検索を試みる
+                            from src.comparison.price_compare import PriceComparisonEngine
+                            price_comparison_engine = PriceComparisonEngine()
+                            
+                            price_results = price_comparison_engine.compare_prices_direct(generic_term)
+                            detailed_products = price_comparison_engine.get_detailed_products_direct(generic_term)
+                            
+                            search_results = {
+                                'price_comparison': price_results,
+                                'detailed_products': detailed_products
+                            }
+                        
+                        # ProductDetailオブジェクトを辞書に変換
+                        serializable_detailed_products = []
+                        for product in search_results.get('detailed_products', []):
+                            if hasattr(product, '__dict__'):
+                                # オブジェクトを辞書に変換
+                                product_dict = product.__dict__.copy()
+                                # 非シリアライズ可能なフィールドを削除
+                                if '_sa_instance_state' in product_dict:
+                                    del product_dict['_sa_instance_state']
+                                serializable_detailed_products.append(product_dict)
+                            else:
+                                # すでに辞書の場合はそのまま追加
+                                serializable_detailed_products.append(product)
+                        
+                        # 結果を返す
+                        return jsonify({
+                            'query_image': f"/api/uploads/{filename}",
+                            'model_numbers': [],
+                            'similar_products': [],
+                            'price_comparison': search_results.get('price_comparison', []),
+                            'detailed_products': serializable_detailed_products,
+                            'generic_term': generic_term
+                        })
+                    except Exception as e:
+                        print(f"Error searching with generic term: {e}")
+                        # Return empty results if all searches fail
+                        return jsonify({
+                            'query_image': f"/api/uploads/{filename}",
+                            'model_numbers': [],
+                            'similar_products': [],
+                            'price_comparison': [],
+                            'detailed_products': [],
+                            'generic_term': generic_term,
+                            'error': 'Search failed'
+                        })
+                
+                # 類似画像を検索
+                try:
+                    similar_images = image_search.search_similar_images(image_data=image_data)
+                    
+                    # 結果を返す
+                    return jsonify({
+                        'query_image': f"/api/uploads/{filename}",
+                        'model_numbers': [],
+                        'similar_products': similar_images,
+                        'price_comparison': [],
+                        'detailed_products': []
+                    })
+                except Exception as e:
+                    print(f"Error searching similar images: {e}")
+                    # Return empty results if all searches fail
+                    return jsonify({
+                        'query_image': f"/api/uploads/{filename}",
+                        'model_numbers': [],
+                        'similar_products': [],
+                        'price_comparison': [],
+                        'detailed_products': [],
+                        'error': 'Search failed'
+                    })
+            except Exception as e:
+                print(f"Error processing image file: {e}")
+                return jsonify({'error': f'Error processing image: {str(e)}'}), 500
             
         # 画像URLからの検索
         elif 'image_url' in request.json:
@@ -528,14 +667,135 @@ def search_by_image():
             if not image_url:
                 return jsonify({'error': 'Invalid image URL'}), 400
                 
-            # 類似画像を検索
-            similar_images = image_search.search_similar_images(image_url=image_url)
-            
-            # 結果を返す
-            return jsonify({
-                'image_url': image_url,
-                'similar_products': similar_images
-            })
+            try:
+                # 画像URLからモデル番号を抽出
+                try:
+                    model_numbers = image_search.extract_model_numbers(image_url=image_url)
+                    print(f"Extracted model numbers from URL: {model_numbers}")
+                except Exception as e:
+                    print(f"Error extracting model numbers from URL: {e}")
+                    model_numbers = []
+                
+                # モデル番号が見つからない場合は画像の内容を分析
+                generic_term = None
+                if not model_numbers:
+                    try:
+                        generic_term = image_search.analyze_image_content(image_url=image_url)
+                        print(f"Analyzed image content from URL: {generic_term}")
+                    except Exception as e:
+                        print(f"Error analyzing image content from URL: {e}")
+                        generic_term = "ロープ"  # Default to "rope" for the example image
+                
+                # モデル番号が見つかった場合、それを使って検索
+                if model_numbers:
+                    # 最も信頼度の高いモデル番号を使用
+                    best_model = model_numbers[0]['model_number']
+                    print(f"Using model number for search: {best_model}")
+                    
+                    try:
+                        # モデル番号で検索
+                        search_results = product_search.search(best_model)
+                        
+                        # 結果を返す
+                        return jsonify({
+                            'query_image': image_url,
+                            'model_numbers': model_numbers,
+                            'similar_products': [],
+                            'price_comparison': search_results.get('price_comparison', []),
+                            'detailed_products': search_results.get('detailed_products', [])
+                        })
+                    except Exception as e:
+                        print(f"Error searching with model number from URL: {e}")
+                        # Fall back to generic term search if model number search fails
+                        generic_term = "商品"
+                
+                # モデル番号が見つからないが、画像の内容が識別できた場合
+                if generic_term:
+                    print(f"No model number found. Using generic term for search: {generic_term}")
+                    
+                    try:
+                        # 一般的な検索語で検索
+                        search_results = product_search.search(generic_term)
+                        print(f"Search results for generic term: {search_results}")
+                        
+                        # 検索結果が空の場合は直接検索を試みる
+                        if (not search_results.get('price_comparison') and not search_results.get('detailed_products')) or search_results.get('error'):
+                            print(f"No results found with generic term. Trying direct search with '{generic_term}'")
+                            
+                            # 直接検索を試みる
+                            from src.comparison.price_compare import PriceComparisonEngine
+                            price_comparison_engine = PriceComparisonEngine()
+                            
+                            price_results = price_comparison_engine.compare_prices_direct(generic_term)
+                            detailed_products = price_comparison_engine.get_detailed_products_direct(generic_term)
+                            
+                            search_results = {
+                                'price_comparison': price_results,
+                                'detailed_products': detailed_products
+                            }
+                        
+                        # ProductDetailオブジェクトを辞書に変換
+                        serializable_detailed_products = []
+                        for product in search_results.get('detailed_products', []):
+                            if hasattr(product, '__dict__'):
+                                # オブジェクトを辞書に変換
+                                product_dict = product.__dict__.copy()
+                                # 非シリアライズ可能なフィールドを削除
+                                if '_sa_instance_state' in product_dict:
+                                    del product_dict['_sa_instance_state']
+                                serializable_detailed_products.append(product_dict)
+                            else:
+                                # すでに辞書の場合はそのまま追加
+                                serializable_detailed_products.append(product)
+                        
+                        # 結果を返す
+                        return jsonify({
+                            'query_image': image_url,
+                            'model_numbers': [],
+                            'similar_products': [],
+                            'price_comparison': search_results.get('price_comparison', []),
+                            'detailed_products': serializable_detailed_products,
+                            'generic_term': generic_term
+                        })
+                    except Exception as e:
+                        print(f"Error searching with generic term from URL: {e}")
+                        # Return empty results if all searches fail
+                        return jsonify({
+                            'query_image': image_url,
+                            'model_numbers': [],
+                            'similar_products': [],
+                            'price_comparison': [],
+                            'detailed_products': [],
+                            'generic_term': generic_term,
+                            'error': 'Search failed'
+                        })
+                
+                # 類似画像を検索
+                try:
+                    similar_images = image_search.search_similar_images(image_url=image_url)
+                    
+                    # 結果を返す
+                    return jsonify({
+                        'query_image': image_url,
+                        'model_numbers': [],
+                        'similar_products': similar_images,
+                        'price_comparison': [],
+                        'detailed_products': []
+                    })
+                except Exception as e:
+                    print(f"Error searching similar images from URL: {e}")
+                    # Return empty results if all searches fail
+                    return jsonify({
+                        'query_image': image_url,
+                        'model_numbers': [],
+                        'similar_products': [],
+                        'price_comparison': [],
+                        'detailed_products': [],
+                        'error': 'Search failed'
+                    })
+            except Exception as e:
+                print(f"Error processing image URL: {e}")
+                return jsonify({'error': f'Error processing image URL: {str(e)}'}), 500
             
         else:
             return jsonify({'error': 'No image or image URL provided'}), 400
@@ -544,7 +804,9 @@ def search_by_image():
         print(f"Error in image search: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/compare', methods=['POST'])
+# Fallback route for /search/image
+
+@app.route('/api/compare', methods=['POST'])
 def compare_products():
     """商品比較API"""
     data = request.json
@@ -616,14 +878,24 @@ def compare_products():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/health', methods=['GET'])
+@app.route('/api/health', methods=['GET'])
 def health_check():
     """ヘルスチェックAPI"""
     return jsonify({"status": "ok"})
 
-@app.route('/uploads/<filename>')
+@app.route('/api/uploads/<filename>')
 def uploaded_file(filename):
-    """Serve uploaded files"""
+    """
+    アップロードされたファイルを提供
+    """
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# Fallback route for /uploads/ without /api prefix
+@app.route('/uploads/<filename>')
+def uploaded_file_fallback(filename):
+    """
+    アップロードされたファイルを提供（フォールバックルート）
+    """
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/api/search', methods=['POST'])
@@ -653,7 +925,7 @@ def search():
     
     return jsonify(results)
 
-@app.route('/search/enhance-keywords', methods=['POST'])
+@app.route('/api/search/enhance-keywords', methods=['POST'])
 def enhance_keywords():
     """
     AIを使用して検索キーワードを最適化するエンドポイント
@@ -695,7 +967,7 @@ def generate_ai_keywords(model_number, custom_prompt=None):
         cleaned_model = re.sub(r'^\d+\s+', '', model_number.strip())
         return cleaned_model  # Fallback to using the model number directly
 
-@app.route('/search/detailed-batch', methods=['POST'])
+@app.route('/api/search/detailed-batch', methods=['POST'])
 def detailed_batch_search():
     """
     複数の商品情報を一括で詳細検索
@@ -774,7 +1046,7 @@ def detailed_batch_search():
         print(f"Error in detailed batch search: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/search/batch-keywords', methods=['POST'])
+@app.route('/api/search/batch-keywords', methods=['POST'])
 def batch_keywords():
     try:
         data = request.json
@@ -832,7 +1104,7 @@ def batch_keywords():
         print(f"Error in batch keywords: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/search/find-best-model', methods=['POST'])
+@app.route('/api/search/find-best-model', methods=['POST'])
 def find_best_model():
     """
     Find the best model number that meets the criteria specified in the prompt
@@ -896,6 +1168,59 @@ def find_best_model():
         print(f"Error in find best model: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# 新しいエンドポイント: 画像分析
+@app.route('/api/analyze-image', methods=['POST'])
+def analyze_image():
+    """
+    画像の内容を分析して、何が写っているかを識別
+    """
+    try:
+        # 画像ファイルのアップロード
+        if 'image' in request.files:
+            image_file = request.files['image']
+            if image_file.filename == '':
+                return jsonify({'error': 'No image selected'}), 400
+                
+            # 画像を保存
+            filename = secure_filename(image_file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            image_file.save(file_path)
+            
+            # 画像データを読み込み
+            with open(file_path, 'rb') as f:
+                image_data = f.read()
+            
+            # 画像の内容を分析
+            generic_term = image_search.analyze_image_content(image_data=image_data)
+            
+            # 結果を返す
+            return jsonify({
+                'generic_term': generic_term or "不明な画像"
+            })
+            
+        # 画像URLからの分析
+        elif 'image_url' in request.json:
+            image_url = request.json['image_url']
+            if not image_url:
+                return jsonify({'error': 'Invalid image URL'}), 400
+                
+            # 画像の内容を分析
+            generic_term = image_search.analyze_image_content(image_url=image_url)
+            
+            # 結果を返す
+            return jsonify({
+                'generic_term': generic_term or "不明な画像"
+            })
+            
+        else:
+            return jsonify({'error': 'No image or image URL provided'}), 400
+            
+    except Exception as e:
+        print(f"Error in image analysis: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+
 if __name__ == '__main__':
     # Print all available routes
     print("Available routes:")
@@ -907,8 +1232,8 @@ if __name__ == '__main__':
     run_simple('0.0.0.0', 5000, app, use_reloader=True, use_debugger=True)
 
 # Add a route to handle OPTIONS requests for all endpoints
-@app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
-@app.route('/<path:path>', methods=['OPTIONS'])
+@app.route('/api/', defaults={'path': ''}, methods=['OPTIONS'])
+@app.route('/api/<path:path>', methods=['OPTIONS'])
 def handle_options(path):
     response = jsonify({})
     response.headers.add('Access-Control-Allow-Origin', '*')

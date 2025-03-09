@@ -86,20 +86,37 @@ class PriceComparisonEngine:
         """
         各サイトから詳細な商品情報を取得
         """
+        print(f"DEBUG: Getting detailed products for: '{product_info}'")
         all_products = []
         
         # 各APIから詳細情報を取得
         for api_name, api in self.apis.items():
             try:
                 if hasattr(api, 'get_product_details'):
+                    print(f"DEBUG: Fetching products from {api_name} API")
                     products = api.get_product_details(product_info)
-                    all_products.extend(products)
+                    if products:
+                        print(f"DEBUG: Found {len(products)} products from {api_name}")
+                        all_products.extend(products)
+                    else:
+                        print(f"DEBUG: No products found from {api_name}")
             except Exception as e:
                 print(f"Error getting product details from {api_name}: {e}")
                 
         # 価格で昇順ソート
         sorted_products = sorted(all_products, key=lambda x: x.price if x.price else float('inf'))
         
+        print(f"DEBUG: Total products found across all sources: {len(sorted_products)}")
+        # Print breakdown by source
+        sources = {}
+        for product in sorted_products:
+            if product.source not in sources:
+                sources[product.source] = 0
+            sources[product.source] += 1
+        
+        for source, count in sources.items():
+            print(f"DEBUG: {source}: {count} products")
+            
         return sorted_products
 
     def get_detailed_products_direct(self, product_info):
@@ -116,13 +133,17 @@ class PriceComparisonEngine:
                     # Use the exact keyword for search
                     products = api.get_product_details(product_info)
                     
-                    # Filter products to only include those with the exact keyword in the title
-                    filtered_products = []
-                    for product in products:
-                        if product_info.lower() in product.title.lower():
-                            filtered_products.append(product)
-                    
-                    all_products.extend(filtered_products)
+                    # For Amazon, include all products without filtering
+                    if api_name == 'Amazon':
+                        all_products.extend(products)
+                    else:
+                        # For other APIs, filter products to only include those with the exact keyword in the title
+                        filtered_products = []
+                        for product in products:
+                            if product_info.lower() in product.title.lower():
+                                filtered_products.append(product)
+                        
+                        all_products.extend(filtered_products)
             except Exception as e:
                 print(f"Error getting product details from {api_name} (direct search): {e}")
                 

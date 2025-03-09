@@ -12,7 +12,8 @@ class ProductDetail:
                  review_count=None,
                  shipping_fee=None,
                  delivery_date=None,
-                 additional_info=None):
+                 additional_info=None,
+                 asin=None):
         self.source = source  # 情報元（Amazon, 楽天, Yahoo, 価格.com）
         self.title = title  # 商品タイトル
         self.price = price  # 価格
@@ -26,6 +27,7 @@ class ProductDetail:
         self.shipping_fee = shipping_fee  # 送料
         self.delivery_date = delivery_date  # 配送予定日
         self.additional_info = additional_info or {}  # その他の情報
+        self.asin = asin  # Amazon Standard Identification Number
         
     def to_dict(self):
         """辞書形式に変換"""
@@ -42,5 +44,6 @@ class ProductDetail:
             'review_count': self.review_count,
             'shipping_fee': self.shipping_fee,
             'delivery_date': self.delivery_date,
-            'additional_info': self.additional_info
+            'additional_info': self.additional_info,
+            'asin': self.asin
         } 

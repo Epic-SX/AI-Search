@@ -22,9 +22,10 @@ KAKAKU_OAUTH_SECRET = os.getenv("KAKAKU_OAUTH_SECRET", "")
 AMAZON_PARTNER_TAG = os.getenv("AMAZON_PARTNER_TAG", "")
 AMAZON_ACCESS_KEY = os.getenv("AMAZON_ACCESS_KEY", "")
 AMAZON_SECRET_KEY = os.getenv("AMAZON_SECRET_KEY", "")
+AMAZON_REGION = os.getenv("AMAZON_REGION", "ap-northeast-1")
 
 # API Endpoints
-AMAZON_API_ENDPOINT = "https://api.amazon.com/v1"
+AMAZON_API_ENDPOINT = "https://webservices.amazon.co.jp"
 RAKUTEN_API_ENDPOINT = "https://app.rakuten.co.jp/services/api"
 YAHOO_API_ENDPOINT = "https://shopping.yahooapis.jp/ShoppingWebService/V3"
 KAKAKU_API_ENDPOINT = "https://kakakucom.api.webservice.jp"

@@ -30,6 +30,10 @@ export interface ImageSearchResult {
   price_comparison: PriceInfo[];
   detailed_products: ProductInfo[];
   query_image?: string;
+  model_numbers?: ModelNumber[];
+  generic_term?: string;
+  message?: string;
+  error?: string;
 }
 
 // 類似商品の型定義
@@ -64,6 +68,7 @@ export interface ProductInfo {
   description?: string;
   rating?: number;
   features?: string[];
+  asin?: string;  // Amazon Standard Identification Number for Amazon products
 }
 
 // 商品比較結果の型定義
@@ -80,4 +85,11 @@ export interface ProductDifference {
   product_a_value: string;
   product_b_value: string;
   significance: 'high' | 'medium' | 'low';
+}
+
+// モデル番号の型定義
+export interface ModelNumber {
+  model_number: string;
+  confidence: number;
+  source: string;
 } 

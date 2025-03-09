@@ -24,7 +24,6 @@ interface SearchResultsProps {
 export default function SearchResults({ results }: SearchResultsProps) {
   const [imageErrors, setImageErrors] = useState<{[key: string]: boolean}>({});
   const [currentPage, setCurrentPage] = useState(1);
-  const [showAllPrices, setShowAllPrices] = useState(false);
   
   const handleImageError = (id: string) => {
     setImageErrors(prev => ({...prev, [id]: true}));
@@ -76,40 +75,48 @@ export default function SearchResults({ results }: SearchResultsProps) {
     return null;
   };
 
-  // Add this function to group and sort products by store
-  const getBestPricesByStore = (priceComparison: ProductInfo[]) => {
-    // Group products by store
-    const groupedByStore = priceComparison.reduce((acc, product) => {
-      const storeName = product.store || UNKNOWN_STORE_JP;
-      if (!acc[storeName]) {
-        acc[storeName] = [];
-      }
-      acc[storeName].push(product);
-      return acc;
-    }, {} as Record<string, ProductInfo[]>);
-    
-    // Get the cheapest product from each store
-    const bestPrices = Object.entries(groupedByStore).map(([store, products]) => {
-      // Sort by price (lowest first)
-      const sortedProducts = [...products].sort((a, b) => {
-        const priceA = a.price || Number.MAX_VALUE;
-        const priceB = b.price || Number.MAX_VALUE;
-        return priceA - priceB;
-      });
-      
-      // Return the cheapest product
-      return sortedProducts[0];
-    });
-    
-    // Sort all best prices by price (lowest first)
-    return bestPrices.sort((a, b) => {
-      const priceA = a.price || Number.MAX_VALUE;
-      const priceB = b.price || Number.MAX_VALUE;
-      return priceA - priceB;
-    });
+  // Helper function to normalize store names
+  const normalizeStoreName = (storeName: string | undefined): string => {
+    const name = (storeName || '').toLowerCase();
+    if (name.includes('amazon')) return 'Amazon';
+    if (name.includes('rakuten') || name.includes('楽天')) return 'Rakuten';
+    if (name.includes('yahoo') || name.includes('ヤフー')) return 'Yahoo';
+    if (name.includes('kakaku') || name.includes('価格')) return 'Kakaku';
+    return storeName || UNKNOWN_STORE_JP;
   };
 
-  const bestPrices = getBestPricesByStore(results.price_comparison);
+  const getBestPricesByStore = () => {
+    if (!results.detailed_products) return [];
+
+    // Create a map to store the cheapest product for each store
+    const cheapestByStore = new Map<string, ProductInfo>();
+    
+    // Process each product from detailed_products
+    results.detailed_products.forEach(product => {
+      // Normalize the store name to ensure consistent grouping
+      const normalizedStoreName = normalizeStoreName(product.store);
+      const currentCheapest = cheapestByStore.get(normalizedStoreName);
+      
+      // Skip products with no price
+      if (product.price === null || product.price === undefined) {
+        return;
+      }
+      
+      // If we don't have a product for this store yet, or if this product is cheaper
+      if (!currentCheapest || product.price < currentCheapest.price!) {
+        cheapestByStore.set(normalizedStoreName, product);
+      }
+    });
+    
+    // Convert map values to array and sort by price
+    const bestPrices = Array.from(cheapestByStore.values())
+      .filter(product => product.price !== null && product.price !== undefined)
+      .sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
+    
+    return bestPrices;
+  };
+
+  const bestPrices = getBestPricesByStore();
 
   return (
     <Box sx={{ mt: 4 }}>
@@ -130,23 +137,14 @@ export default function SearchResults({ results }: SearchResultsProps) {
         </Box>
       </Box>
 
-      {results.price_comparison && results.price_comparison.length > 0 && (
+      {results.detailed_products && results.detailed_products.length > 0 && (
         <Box sx={{ mb: 4 }}>
           <Typography variant="h5" gutterBottom>
             価格比較
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            ※ 商品ページリンクは各ECサイトの検索結果ページに移動します。実際の商品情報と異なる場合があります。
+            ※ 詳細情報から各ECサイトの最安値商品を表示しています。
           </Typography>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-            <Button 
-              variant="outlined" 
-              size="small"
-              onClick={() => setShowAllPrices(!showAllPrices)}
-            >
-              {showAllPrices ? '各ショップの最安値のみ表示' : 'すべての価格を表示'}
-            </Button>
-          </Box>
           <TableContainer component={Paper}>
             <Table>
               <TableHead>
@@ -159,7 +157,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(showAllPrices ? results.price_comparison : bestPrices).map((item, index) => (
+                {bestPrices.map((item, index) => (
                   <TableRow key={index}>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
