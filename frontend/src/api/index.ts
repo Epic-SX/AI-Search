@@ -118,7 +118,7 @@ export const searchByImage = async (imageFile: File): Promise<ImageSearchResult>
       const response = await axios.post(endpoint, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-        },
+        }
       });
       console.log('Image file search response:', response.data);
       return response.data;
@@ -132,7 +132,7 @@ export const searchByImage = async (imageFile: File): Promise<ImageSearchResult>
       const fallbackResponse = await axios.post(fallbackEndpoint, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-        },
+        }
       });
       console.log('Fallback response:', fallbackResponse.data);
       return fallbackResponse.data;
@@ -143,6 +143,55 @@ export const searchByImage = async (imageFile: File): Promise<ImageSearchResult>
       console.error('Response data:', error.response?.data);
       console.error('Status:', error.response?.status);
     }
+    throw error;
+  }
+};
+
+// 複数画像ファイルによる一括検索
+export const batchSearchByImages = async (imageFiles: File[]): Promise<ImageSearchResult[]> => {
+  try {
+    // Process each image file individually and collect results
+    const promises = imageFiles.map(file => searchByImage(file).catch(error => {
+      console.error(`Error searching with image file ${file.name}:`, error);
+      // Return an empty result with error information
+      return {
+        similar_products: [],
+        price_comparison: [],
+        detailed_products: [],
+        query_image: URL.createObjectURL(file),
+        model_numbers: [],
+        error: error instanceof Error ? error.message : 'Unknown error',
+        filename: file.name // Add filename for identification
+      } as ImageSearchResult;
+    }));
+    
+    return await Promise.all(promises);
+  } catch (error) {
+    console.error('Error in batch image search:', error);
+    throw error;
+  }
+};
+
+// 複数画像URLによる一括検索
+export const batchSearchByImageUrls = async (imageUrls: string[]): Promise<ImageSearchResult[]> => {
+  try {
+    // Process each image URL individually and collect results
+    const promises = imageUrls.map(url => searchByImageUrl(url).catch(error => {
+      console.error(`Error searching with image URL ${url}:`, error);
+      // Return an empty result with error information
+      return {
+        similar_products: [],
+        price_comparison: [],
+        detailed_products: [],
+        query_image: url,
+        model_numbers: [],
+        error: error instanceof Error ? error.message : 'Unknown error'
+      } as ImageSearchResult;
+    }));
+    
+    return await Promise.all(promises);
+  } catch (error) {
+    console.error('Error in batch image URL search:', error);
     throw error;
   }
 };

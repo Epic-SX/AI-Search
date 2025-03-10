@@ -243,8 +243,8 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
               : result.query_image}
             alt="検索画像"
             sx={{ 
-              maxWidth: '100%', 
-              maxHeight: 300, 
+              width: 300,
+              height: 300,
               objectFit: 'contain',
               border: '1px solid #eee',
               borderRadius: 1,

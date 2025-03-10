@@ -13,6 +13,9 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'AI商品検索システム',
   description: 'AIを活用した商品検索・比較システム',
+  icons: {
+    icon: '/favicon.ico',
+  },
 }
 
 export default function RootLayout({

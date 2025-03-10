@@ -1,17 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Container, Typography, Box, CircularProgress, Chip, Paper, Divider, Alert, Button, TextField } from '@mui/material';
+import { Container, Typography, Box, CircularProgress, Chip, Paper, Divider, Alert, Button, TextField, Grid, Tab, Tabs } from '@mui/material';
 import ImageSearchForm from '@/components/ImageSearchForm';
 import ImageSearchResults from '@/components/ImageSearchResults';
 import { ImageSearchResult, ModelNumber } from '@/types';
 import { toast } from 'react-toastify';
-import { searchByImage, searchByImageUrl, searchByProductInfo } from '@/api';
+import { searchByImage, searchByImageUrl, searchByProductInfo, batchSearchByImages, batchSearchByImageUrls } from '@/api';
 import axios from 'axios';
 
 export default function ImageSearchPage() {
   const [loading, setLoading] = useState(false);
-  const [searchResult, setSearchResult] = useState<ImageSearchResult | null>(null);
+  const [searchResults, setSearchResults] = useState<ImageSearchResult[]>([]);
+  const [activeResult, setActiveResult] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [manualSearchTerm, setManualSearchTerm] = useState('');
@@ -86,10 +87,7 @@ export default function ImageSearchPage() {
           
           // Try to analyze the image directly
           try {
-            const formDataCopy = new FormData();
-            formDataCopy.append('image', imageFile);
-            
-            const analysisResult = await analyzeImage(formDataCopy);
+            const analysisResult = await analyzeImage(formData);
             if (analysisResult && analysisResult.generic_term) {
               // If we got a generic term, use it to search
               const genericTerm = analysisResult.generic_term;
@@ -103,35 +101,22 @@ export default function ImageSearchPage() {
                 result.detailed_products = searchResult.detailed_products;
                 result.generic_term = genericTerm;
                 
-                setError(`画像からモデル番号を検出できませんでした。「${genericTerm}」で検索した結果を表示しています。`);
+                // Show a message to the user
+                result.message = `画像の認識に問題がありましたが、画像から「${genericTerm}」を検出して検索しました。`;
               } catch (searchError) {
-                console.error('Error during fallback search:', searchError);
-                setError('バックエンドサーバーとの通信に失敗しました。サーバーが起動しているか確認してください。');
+                console.error('Error searching with generic term:', searchError);
+                result.message = `画像の認識に問題があり、代替検索も失敗しました。別の画像を試すか、手動で検索してください。`;
+                
+                // Show manual search option
                 setShowManualSearch(true);
               }
             } else {
-              // If analysis failed, use a default term for the rope image
-              const defaultTerm = "ロープ";
-              console.log(`Using default term for search: ${defaultTerm}`);
-              
-              try {
-                const searchResult = await searchByProductInfo(defaultTerm, true);
-                
-                // Update the result with the search results
-                result.price_comparison = searchResult.price_comparison;
-                result.detailed_products = searchResult.detailed_products;
-                result.generic_term = defaultTerm;
-                
-                setError(`画像からモデル番号を検出できませんでした。「${defaultTerm}」で検索した結果を表示しています。`);
-              } catch (searchError) {
-                console.error('Error during fallback search:', searchError);
-                setError('バックエンドサーバーとの通信に失敗しました。サーバーが起動しているか確認してください。');
-                setShowManualSearch(true);
-              }
+              result.message = '画像の認識に問題があります。別の画像を試すか、手動で検索してください。';
+              setShowManualSearch(true);
             }
           } catch (analysisError) {
-            console.error('Error during image analysis:', analysisError);
-            setError('バックエンドサーバーとの通信に失敗しました。サーバーが起動しているか確認してください。');
+            console.error('Error analyzing image:', analysisError);
+            result.message = '画像の認識に問題があります。別の画像を試すか、手動で検索してください。';
             setShowManualSearch(true);
           }
         }
@@ -172,124 +157,79 @@ export default function ImageSearchPage() {
                 result.detailed_products = searchResult.detailed_products;
                 result.generic_term = genericTerm;
                 
-                setError(`画像からモデル番号を検出できませんでした。「${genericTerm}」で検索した結果を表示しています。`);
+                // Show a message to the user
+                result.message = `画像の認識に問題がありましたが、画像から「${genericTerm}」を検出して検索しました。`;
               } catch (searchError) {
-                console.error('Error during fallback search:', searchError);
-                setError('バックエンドサーバーとの通信に失敗しました。サーバーが起動しているか確認してください。');
+                console.error('Error searching with generic term:', searchError);
+                result.message = `画像の認識に問題があり、代替検索も失敗しました。別の画像を試すか、手動で検索してください。`;
+                
+                // Show manual search option
                 setShowManualSearch(true);
               }
             } else {
-              // If analysis failed, use a default term for the rope image
-              const defaultTerm = "ロープ";
-              console.log(`Using default term for search: ${defaultTerm}`);
-              
-              try {
-                const searchResult = await searchByProductInfo(defaultTerm, true);
-                
-                // Update the result with the search results
-                result.price_comparison = searchResult.price_comparison;
-                result.detailed_products = searchResult.detailed_products;
-                result.generic_term = defaultTerm;
-                
-                setError(`画像からモデル番号を検出できませんでした。「${defaultTerm}」で検索した結果を表示しています。`);
-              } catch (searchError) {
-                console.error('Error during fallback search:', searchError);
-                setError('バックエンドサーバーとの通信に失敗しました。サーバーが起動しているか確認してください。');
-                setShowManualSearch(true);
-              }
+              result.message = '画像の認識に問題があります。別の画像を試すか、手動で検索してください。';
+              setShowManualSearch(true);
             }
           } catch (analysisError) {
-            console.error('Error during image analysis:', analysisError);
-            setError('バックエンドサーバーとの通信に失敗しました。サーバーが起動しているか確認してください。');
+            console.error('Error analyzing image:', analysisError);
+            result.message = '画像の認識に問題があります。別の画像を試すか、手動で検索してください。';
             setShowManualSearch(true);
           }
         }
       }
       
-      // Check if the result has any data
-      if (!result.similar_products?.length && !result.price_comparison?.length && !result.detailed_products?.length) {
-        console.warn('No search results found in the response');
-        
-        // If we have model numbers but no search results, try a generic search
-        if (result.model_numbers && result.model_numbers.length > 0) {
-          setError('モデル番号が検出されましたが、商品情報が見つかりませんでした。');
-          setShowManualSearch(true);
-        } else if (!result.generic_term) {
-          // For images like ropes, cables, etc. that don't have model numbers
-          // Try to identify what's in the image and provide a generic search term
-          try {
-            // Use the image analysis to determine what's in the image
-            // This would typically be done by the backend, but we'll simulate it here
-            // In a real implementation, you would call an API to analyze the image
-            
-            // Call the backend to analyze the image and get a generic search term
-            const imageAnalysisResult = await analyzeImage(formData);
-            
-            if (imageAnalysisResult && imageAnalysisResult.generic_term) {
-              console.log(`Image analysis identified: ${imageAnalysisResult.generic_term}`);
-              
-              // Perform a fallback search with the identified term
-              const genericSearchTerm = imageAnalysisResult.generic_term;
-              console.log(`Performing fallback search with term: ${genericSearchTerm}`);
-              
-              const fallbackResult = await searchByProductInfo(genericSearchTerm, true);
-              
-              // Update the result with the fallback search results
-              result.detailed_products = fallbackResult.detailed_products;
-              result.price_comparison = fallbackResult.price_comparison;
-              result.generic_term = genericSearchTerm;
-              
-              // Add a note that this is a fallback search
-              setError(`画像からモデル番号を検出できませんでした。「${genericSearchTerm}」で検索した結果を表示しています。`);
-            } else {
-              // If image analysis failed, use a default term based on the image
-              const defaultTerm = "ロープ"; // Default term for the rope image
-              console.log(`Using default search term: ${defaultTerm}`);
-              
-              const fallbackResult = await searchByProductInfo(defaultTerm, true);
-              
-              // Update the result with the fallback search results
-              result.detailed_products = fallbackResult.detailed_products;
-              result.price_comparison = fallbackResult.price_comparison;
-              result.generic_term = defaultTerm;
-              
-              // Add a note that this is a fallback search
-              setError(`画像からモデル番号を検出できませんでした。「${defaultTerm}」で検索した結果を表示しています。`);
-            }
-          } catch (fallbackError) {
-            console.error('Error during fallback search:', fallbackError);
-            setError('画像からモデル番号を検出できませんでした。手動検索を試してください。');
-            setShowManualSearch(true);
-          }
-        } else if (result.error) {
-          // If the backend returned an error but we have a generic term, try a direct search
-          const genericTerm = result.generic_term;
-          console.log(`Backend returned error but we have generic term: ${genericTerm}. Trying direct search.`);
-          
-          try {
-            const fallbackResult = await searchByProductInfo(genericTerm, true);
-            
-            // Update the result with the fallback search results
-            result.detailed_products = fallbackResult.detailed_products;
-            result.price_comparison = fallbackResult.price_comparison;
-            
-            // Add a note that this is a fallback search
-            setError(`画像からモデル番号を検出できませんでした。「${genericTerm}」で検索した結果を表示しています。`);
-          } catch (directSearchError) {
-            console.error('Error during direct search:', directSearchError);
-            setError(`画像からモデル番号を検出できませんでした。「${genericTerm}」で検索しましたが、結果が見つかりませんでした。手動検索を試してください。`);
-            setShowManualSearch(true);
-          }
-        }
-      }
-      
-      setSearchResult(result);
+      setSearchResults([result]);
+      setActiveResult(0);
     } catch (error) {
       console.error('Error during image search:', error);
       setError('画像検索中にエラーが発生しました。もう一度お試しください。');
-      toast.error('画像検索中にエラーが発生しました');
-      setSearchResult(null);
-      setShowManualSearch(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Handle batch search with multiple images or URLs
+  const handleBatchSearch = async (formData: FormData[] | { image_urls: string[] }) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      let results: ImageSearchResult[];
+      
+      if (Array.isArray(formData)) {
+        // Multiple image files (FormData array)
+        const imageFiles: File[] = [];
+        
+        // Extract files from FormData objects
+        for (const singleFormData of formData) {
+          const imageFile = singleFormData.get('image') as File;
+          if (imageFile) {
+            imageFiles.push(imageFile);
+          }
+        }
+        
+        // Use batch search function
+        if (imageFiles.length > 0) {
+          results = await batchSearchByImages(imageFiles);
+        } else {
+          throw new Error('No valid image files found');
+        }
+      } else {
+        // Multiple image URLs
+        const { image_urls } = formData;
+        
+        if (image_urls.length > 0) {
+          results = await batchSearchByImageUrls(image_urls);
+        } else {
+          throw new Error('No valid image URLs found');
+        }
+      }
+      
+      setSearchResults(results);
+      setActiveResult(0); // Set the first result as active
+    } catch (error) {
+      console.error('Error during batch image search:', error);
+      setError('一括画像検索中にエラーが発生しました。もう一度お試しください。');
     } finally {
       setLoading(false);
     }
@@ -318,7 +258,7 @@ export default function ImageSearchPage() {
 
   const handleManualSearch = async () => {
     if (!manualSearchTerm.trim()) {
-      toast.error('検索キーワードを入力してください');
+      setError('検索語を入力してください');
       return;
     }
     
@@ -326,19 +266,21 @@ export default function ImageSearchPage() {
     setError(null);
     
     try {
-      console.log(`Performing manual search with term: ${manualSearchTerm}`);
-      const result = await searchByProductInfo(manualSearchTerm, true);
+      const searchResult = await searchByProductInfo(manualSearchTerm, true);
       
-      // Create an ImageSearchResult from the SearchResult
+      // Create an image search result with the manual search results
       const imageSearchResult: ImageSearchResult = {
         similar_products: [],
-        price_comparison: result.price_comparison,
-        detailed_products: result.detailed_products,
-        query_image: searchResult?.query_image || '',
-        model_numbers: []
+        price_comparison: searchResult.price_comparison || [],
+        detailed_products: searchResult.detailed_products || [],
+        query_image: '',
+        model_numbers: [],
+        generic_term: manualSearchTerm,
+        message: `「${manualSearchTerm}」の検索結果を表示しています。`
       };
       
-      setSearchResult(imageSearchResult);
+      setSearchResults([imageSearchResult]);
+      setActiveResult(0);
       setShowManualSearch(false);
     } catch (error) {
       console.error('Error during manual search:', error);
@@ -350,116 +292,95 @@ export default function ImageSearchPage() {
 
   return (
     <Container maxWidth="lg">
-      <Box sx={{ my: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          画像検索
-        </Typography>
-        <Typography variant="body1" sx={{ mb: 2 }}>
-          商品の画像をアップロードして、モデル番号を抽出し類似商品を見つけましょう。
-        </Typography>
-        
-        
-        {serverStatus === 'offline' && (
-          <Alert severity="error" sx={{ mb: 4 }}>
-            バックエンドサーバーに接続できません。サーバーが起動しているか確認してください。
+      <Typography variant="h4" component="h1" gutterBottom sx={{ mt: 4 }}>
+        画像検索
+      </Typography>
+      
+      {serverStatus === 'offline' && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          バックエンドサーバーに接続できません。サーバーが起動しているか確認してください。
+        </Alert>
+      )}
+      
+      <ImageSearchForm 
+        onSearch={handleSearch} 
+        onBatchSearch={handleBatchSearch}
+        isLoading={loading} 
+      />
+      
+      {error && (
+        <Alert severity="error" sx={{ mt: 3 }}>
+          {error}
+        </Alert>
+      )}
+      
+      {showManualSearch && (
+        <Paper sx={{ p: 3, mt: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            手動検索
+          </Typography>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            画像からの検索に問題がありました。キーワードを入力して手動で検索できます。
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <TextField
+              fullWidth
+              label="検索キーワード"
+              value={manualSearchTerm}
+              onChange={(e) => setManualSearchTerm(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
+            />
             <Button 
-              variant="outlined" 
-              size="small" 
-              sx={{ mt: 1 }}
-              onClick={() => setServerStatus('checking')}
+              variant="contained" 
+              onClick={handleManualSearch}
+              disabled={loading || !manualSearchTerm.trim()}
             >
-              再接続
+              検索
             </Button>
-          </Alert>
-        )}
-        
-        {serverStatus === 'online' && (
-          <Alert severity="info" sx={{ mb: 4 }}>
-            この機能は、商品画像からモデル番号を自動的に抽出し、そのモデル番号を使って商品を検索します。
-            画像は鮮明で、モデル番号が見えるものが最適です。
-          </Alert>
-        )}
-        
-        <ImageSearchForm onSearch={handleSearch} isLoading={loading} />
-        
-        {loading && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-            <CircularProgress />
           </Box>
-        )}
-        
-        {error && !loading && (
-          <Alert severity="error" sx={{ mt: 4, mb: 2 }}>
-            {error}
-            
-            {/* Add manual search option when model number detection fails */}
-            {error.includes('モデル番号を検出できませんでした') && !showManualSearch && (
-              <Button 
-                variant="outlined" 
-                size="small" 
-                sx={{ mt: 1, ml: 2 }}
-                onClick={() => setShowManualSearch(true)}
+        </Paper>
+      )}
+      
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+      
+      {!loading && !error && searchResults.length > 0 && (
+        <>
+          {searchResults.length > 1 && (
+            <Box sx={{ mt: 4, mb: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                検索結果 ({searchResults.length}件)
+              </Typography>
+              <Tabs
+                value={activeResult}
+                onChange={(_, newValue) => setActiveResult(newValue)}
+                variant="scrollable"
+                scrollButtons="auto"
+                sx={{ mb: 2 }}
               >
-                手動で検索する
-              </Button>
-            )}
-          </Alert>
-        )}
-        
-        {/* Manual search form */}
-        {showManualSearch && !loading && (
-          <Box sx={{ mt: 2, mb: 4, p: 2, border: '1px solid #eee', borderRadius: 1 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              手動検索
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="検索キーワード"
-                value={manualSearchTerm}
-                onChange={(e) => setManualSearchTerm(e.target.value)}
-                placeholder="例: ロープ、コード、ケーブル"
-              />
-              <Button 
-                variant="contained" 
-                onClick={handleManualSearch}
-                disabled={!manualSearchTerm.trim()}
-              >
-                検索
-              </Button>
+                {searchResults.map((result, index) => {
+                  let label = `結果 ${index + 1}`;
+                  if (result.filename) {
+                    label = result.filename.length > 20 
+                      ? result.filename.substring(0, 20) + '...' 
+                      : result.filename;
+                  }
+                  return <Tab key={index} label={label} />;
+                })}
+              </Tabs>
             </Box>
-          </Box>
-        )}
-        
-        {!loading && !error && searchResult && (
-          <>
-            {searchResult.model_numbers && searchResult.model_numbers.length > 0 && (
-              <Paper sx={{ p: 3, mt: 4, mb: 2 }}>
-                <Typography variant="h6" gutterBottom>
-                  検出されたモデル番号
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {searchResult.model_numbers?.map((model: ModelNumber, index: number) => (
-                    <Chip 
-                      key={index}
-                      label={`${model.model_number} (信頼度: ${Math.round(model.confidence * 100)}%)`}
-                      color="primary"
-                      variant={index === 0 ? "filled" : "outlined"}
-                    />
-                  ))}
-                </Box>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="body2" color="text.secondary">
-                  最も信頼度の高いモデル番号を使用して商品を検索しています。
-                </Typography>
-              </Paper>
-            )}
-            
-            <ImageSearchResults result={searchResult} />
-          </>
-        )}
-      </Box>
+          )}
+          
+          {searchResults.map((result, index) => (
+            <Box key={index} sx={{ display: activeResult === index ? 'block' : 'none' }}>
+              <ImageSearchResults result={result} />
+            </Box>
+          ))}
+        </>
+      )}
     </Container>
   );
 } 

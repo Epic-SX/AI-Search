@@ -34,6 +34,7 @@ export interface ImageSearchResult {
   generic_term?: string;
   message?: string;
   error?: string;
+  filename?: string;
 }
 
 // 類似商品の型定義
