@@ -310,7 +310,7 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
                     sx={{ 
                       width: 300,
                       height: 300,
-                      objectFit: 'cover',
+                      objectFit: 'contain',
                       border: 1,
                       borderColor: 'divider',
                       borderRadius: 1

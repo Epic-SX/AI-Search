@@ -204,7 +204,7 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
   }
 
   const getStoreIcon = (storeName: string) => {
-    const lowerStoreName = (storeName || '').toLowerCase();
+    const lowerStoreName = storeName.toLowerCase();
     
     if (lowerStoreName.includes('amazon')) {
       return <FaAmazon size={24} color="#FF9900" />;
@@ -212,9 +212,6 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
       return <SiRakuten size={24} color="#BF0000" />;
     } else if (lowerStoreName.includes('yahoo') || lowerStoreName.includes('ヤフー')) {
       return <SiYahoo size={24} color="#6001D2" />;
-    } else if (lowerStoreName.includes('kakaku') || lowerStoreName.includes('価格')) {
-      // Custom text for Kakaku.com
-      return <Box sx={{ fontWeight: 'bold', color: '#0095E5' }}>価格.com</Box>;
     }
     
     return null;

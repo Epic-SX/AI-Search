@@ -15,10 +15,9 @@ import hashlib
 import hmac
 import urllib.parse
 import base64
-from src.api.amazon_api import AmazonAPI
+from src.api.amazon_api import amazon_api
 from src.api.rakuten_api import rakuten_api
 from src.api.yahoo_api import yahoo_api
-from src.api.kakaku_api import kakaku_api
 from src.tools.batch_keyword_generator import BatchKeywordGenerator
 
 app = Flask(__name__)
@@ -42,7 +41,6 @@ def allowed_file(filename):
 product_search = ProductSearchEngine()
 image_search = ImageSearchEngine()
 price_comparison = PriceComparisonEngine()
-amazon_api = AmazonAPI()
 
 # Load environment variables
 load_dotenv()
@@ -273,24 +271,12 @@ def get_item_image_url(result):
 
 def search_yahoo(keywords, limit=100):
     """
-    Yahoo Shopping APIを使用して商品を検索
+    Yahoo!ショッピングから商品情報を検索
     """
     try:
-        # Use the Yahoo API to search for products
         return yahoo_api.get_product_details(keywords)
     except Exception as e:
         print(f"Error in Yahoo search: {e}")
-        return []
-
-def search_kakaku(keywords, limit=100):
-    """
-    Kakaku.comから商品情報を検索
-    """
-    try:
-        # For now, return empty results until Kakaku scraping is implemented
-        return []
-    except Exception as e:
-        print(f"Error in Kakaku search: {e}")
         return []
 
 @app.route('/api/search/product', methods=['POST'])
@@ -902,7 +888,7 @@ def uploaded_file_fallback(filename):
 def search():
     data = request.json
     query = data.get('query', '')
-    sources = data.get('sources', ['rakuten', 'yahoo', 'amazon', 'kakaku'])
+    sources = data.get('sources', ['rakuten', 'yahoo', 'amazon'])
     
     results = {}
     
@@ -918,10 +904,6 @@ def search():
         # Use the new Amazon PA-API function
         amazon_results = search_amazon_products(query)
         results['amazon'] = amazon_results
-        
-    if 'kakaku' in sources:
-        kakaku_results = search_kakaku(query)
-        results['kakaku'] = kakaku_results
     
     return jsonify(results)
 

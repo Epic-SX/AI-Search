@@ -6,33 +6,6 @@ import { SearchResult, ImageSearchResult, ComparisonResult } from '@/types';
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 console.log('Using API base URL:', API_BASE_URL);
 
-// Test the API connection
-(async () => {
-  try {
-    // Try with /api prefix
-    try {
-      const response = await axios.get(`${API_BASE_URL}/api/health`);
-      console.log('API health check successful with /api prefix:', response.data);
-      return;
-    } catch (error) {
-      console.error('API health check failed with /api prefix:', error);
-    }
-
-    // Try without /api prefix
-    try {
-      const response = await axios.get(`${API_BASE_URL}/health`);
-      console.log('API health check successful without /api prefix:', response.data);
-      return;
-    } catch (error) {
-      console.error('API health check failed without /api prefix:', error);
-    }
-
-    console.error('All API health checks failed. Backend server may not be running.');
-  } catch (error) {
-    console.error('Error checking API health:', error);
-  }
-})();
-
 // Configure Axios defaults for CORS
 axios.defaults.headers.common['Accept'] = 'application/json';
 axios.defaults.headers.post['Content-Type'] = 'application/json';

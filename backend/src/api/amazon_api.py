@@ -10,7 +10,7 @@ import base64
 import os
 from src.config.settings import AMAZON_PARTNER_TAG, AMAZON_ACCESS_KEY, AMAZON_SECRET_KEY, AMAZON_REGION, AMAZON_API_ENDPOINT
 import random
-from amazon.paapi import AmazonAPI as PAAPI
+from amazon_paapi import AmazonApi as PAAPI
 from bs4 import BeautifulSoup
 import logging
 import re

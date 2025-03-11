@@ -1,7 +1,6 @@
 from src.api.amazon_api import amazon_api
 from src.api.rakuten_api import rakuten_api
 from src.api.yahoo_api import yahoo_api
-from src.api.kakaku_api import kakaku_api
 from src.config.settings import PRICE_THRESHOLD
 from concurrent.futures import ThreadPoolExecutor
 
@@ -10,8 +9,7 @@ class PriceComparisonEngine:
         self.apis = {
             'Amazon': amazon_api,
             'Rakuten': rakuten_api,
-            'Yahoo': yahoo_api,
-            'Kakaku': kakaku_api
+            'Yahoo': yahoo_api
         }
 
     def compare_prices(self, product_info):

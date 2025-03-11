@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { SearchResult, ProductInfo } from '@/types';
 import { FaExternalLinkAlt, FaStar, FaAmazon } from 'react-icons/fa';
 import { SiRakuten, SiYahoo } from 'react-icons/si';
@@ -16,6 +16,8 @@ const UNKNOWN_STORE_JP = '不明なショップ';
 const NO_TITLE_JP = '商品名なし';
 // Number of products per page
 const PRODUCTS_PER_PAGE = 6;
+// Number of products per source to display in the comparison view
+const PRODUCTS_PER_SOURCE = 5;
 
 interface SearchResultsProps {
   results: SearchResult;
@@ -58,31 +60,33 @@ export default function SearchResults({ results }: SearchResultsProps) {
     }
   };
 
-  const getStoreIcon = (storeName: string | undefined) => {
-    const lowerStoreName = (storeName || '').toLowerCase();
-    
+  const getStoreName = (name: string) => {
+    const lowerStoreName = name?.toLowerCase() || '';
     if (lowerStoreName.includes('amazon')) {
-      return <FaAmazon size={24} color="#FF9900" />;
-    } else if (lowerStoreName.includes('rakuten') || lowerStoreName.includes('楽天')) {
-      return <SiRakuten size={24} color="#BF0000" />;
-    } else if (lowerStoreName.includes('yahoo') || lowerStoreName.includes('ヤフー')) {
-      return <SiYahoo size={24} color="#6001D2" />;
-    } else if (lowerStoreName.includes('kakaku') || lowerStoreName.includes('価格')) {
-      // Custom text for Kakaku.com
-      return <Box sx={{ fontWeight: 'bold', color: '#0095E5' }}>価格.com</Box>;
+      return 'Amazon';
+    } else if (lowerStoreName.includes('rakuten')) {
+      return 'Rakuten';
+    } else if (lowerStoreName.includes('yahoo')) {
+      return 'Yahoo!';
+    } else {
+      return name || UNKNOWN_STORE_JP;
     }
-    
-    return null;
   };
 
-  // Helper function to normalize store names
-  const normalizeStoreName = (storeName: string | undefined): string => {
-    const name = (storeName || '').toLowerCase();
-    if (name.includes('amazon')) return 'Amazon';
-    if (name.includes('rakuten') || name.includes('楽天')) return 'Rakuten';
-    if (name.includes('yahoo') || name.includes('ヤフー')) return 'Yahoo';
-    if (name.includes('kakaku') || name.includes('価格')) return 'Kakaku';
-    return storeName || UNKNOWN_STORE_JP;
+  const getStoreIcon = (name: string) => {
+    const lowerStoreName = name?.toLowerCase() || '';
+    if (lowerStoreName.includes('amazon')) return 'Amazon';
+    if (lowerStoreName.includes('rakuten')) return 'Rakuten';
+    if (lowerStoreName.includes('yahoo')) return 'Yahoo';
+    return 'Shop';
+  };
+
+  const getStoreColor = (name: string) => {
+    const lowerStoreName = name?.toLowerCase() || '';
+    if (lowerStoreName.includes('amazon')) return '#FF9900';
+    if (lowerStoreName.includes('rakuten')) return '#BF0000';
+    if (lowerStoreName.includes('yahoo')) return '#6001D2';
+    return '#666666';
   };
 
   const getBestPricesByStore = () => {
@@ -94,7 +98,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
     // Process each product from detailed_products
     results.detailed_products.forEach(product => {
       // Normalize the store name to ensure consistent grouping
-      const normalizedStoreName = normalizeStoreName(product.store);
+      const normalizedStoreName = getStoreName(product.store || '');
       const currentCheapest = cheapestByStore.get(normalizedStoreName);
       
       // Skip products with no price
@@ -115,6 +119,38 @@ export default function SearchResults({ results }: SearchResultsProps) {
     
     return bestPrices;
   };
+
+  // Group products by source
+  const groupedProducts = useMemo(() => {
+    if (!results.detailed_products) return { amazon: [], rakuten: [], yahoo: [], other: [] };
+    
+    const grouped = {
+      amazon: [] as ProductInfo[],
+      rakuten: [] as ProductInfo[],
+      yahoo: [] as ProductInfo[],
+      other: [] as ProductInfo[]
+    };
+    
+    results.detailed_products.forEach(product => {
+      const storeName = getStoreIcon(product.store || '').toLowerCase();
+      if (storeName === 'amazon') {
+        grouped.amazon.push(product);
+      } else if (storeName === 'rakuten') {
+        grouped.rakuten.push(product);
+      } else if (storeName === 'yahoo') {
+        grouped.yahoo.push(product);
+      } else {
+        grouped.other.push(product);
+      }
+    });
+    
+    // Sort each group by price
+    Object.keys(grouped).forEach(key => {
+      grouped[key as keyof typeof grouped].sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+    });
+    
+    return grouped;
+  }, [results.detailed_products]);
 
   const bestPrices = getBestPricesByStore();
 
@@ -161,7 +197,9 @@ export default function SearchResults({ results }: SearchResultsProps) {
                   <TableRow key={index}>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {getStoreIcon(item.store)}
+                        {getStoreIcon(item.store || '') === 'Amazon' && <FaAmazon size={24} color="#FF9900" />}
+                        {getStoreIcon(item.store || '') === 'Rakuten' && <SiRakuten size={24} color="#BF0000" />}
+                        {getStoreIcon(item.store || '') === 'Yahoo' && <SiYahoo size={24} color="#6001D2" />}
                         <Typography variant="body2" fontWeight="medium">
                           {item.store || UNKNOWN_STORE_JP}
                         </Typography>
@@ -232,6 +270,307 @@ export default function SearchResults({ results }: SearchResultsProps) {
         </Box>
       )}
 
+      {/* New Side-by-Side Comparison View */}
+      {hasDetailedProducts && (
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h5" gutterBottom>
+            ECサイト別商品比較
+          </Typography>
+          <Grid container spacing={2}>
+            {/* Amazon Column */}
+            <Grid item xs={12} md={4}>
+              <Box sx={{ 
+                bgcolor: '#f8f8f8', 
+                borderRadius: 2, 
+                overflow: 'hidden',
+                height: '100%'
+              }}>
+                <Box sx={{ 
+                  bgcolor: '#FF9900', 
+                  color: 'white', 
+                  p: 1, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1
+                }}>
+                  <FaAmazon size={24} />
+                  <Typography variant="h6">Amazon.co.jp</Typography>
+                </Box>
+                <Box sx={{ p: 2 }}>
+                  {groupedProducts.amazon.length > 0 ? (
+                    groupedProducts.amazon.slice(0, PRODUCTS_PER_SOURCE).map((product, index) => (
+                      <Box key={index} sx={{ 
+                        mb: 2, 
+                        p: 2, 
+                        bgcolor: 'white', 
+                        borderRadius: 1,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                        '&:last-child': { mb: 0 }
+                      }}>
+                        <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                          <Box
+                            component="img"
+                            src={imageErrors[`amazon-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
+                            alt={product.title || '商品画像'}
+                            onError={() => handleImageError(`amazon-${index}`)}
+                            sx={{ 
+                              width: 80, 
+                              height: 80, 
+                              objectFit: 'contain',
+                              border: '1px solid #eee',
+                              borderRadius: 1,
+                              p: 1
+                            }}
+                          />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                mb: 1, 
+                                display: '-webkit-box',
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                lineHeight: 1.3,
+                                height: '3.9em'
+                              }}
+                            >
+                              {product.title || NO_TITLE_JP}
+                            </Typography>
+                            <Typography variant="h6" color="#FF9900" fontWeight="bold">
+                              {formatPrice(product.price)}円
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button
+                            component="a"
+                            href={product.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            variant="outlined"
+                            size="small"
+                            sx={{ 
+                              color: '#FF9900', 
+                              borderColor: '#FF9900',
+                              '&:hover': {
+                                borderColor: '#FF9900',
+                                bgcolor: 'rgba(255, 153, 0, 0.04)'
+                              }
+                            }}
+                          >
+                            商品ページ
+                          </Button>
+                        </Box>
+                      </Box>
+                    ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                      商品が見つかりませんでした
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            </Grid>
+
+            {/* Rakuten Column */}
+            <Grid item xs={12} md={4}>
+              <Box sx={{ 
+                bgcolor: '#f8f8f8', 
+                borderRadius: 2, 
+                overflow: 'hidden',
+                height: '100%'
+              }}>
+                <Box sx={{ 
+                  bgcolor: '#BF0000', 
+                  color: 'white', 
+                  p: 1, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1
+                }}>
+                  <SiRakuten size={24} />
+                  <Typography variant="h6">楽天市場</Typography>
+                </Box>
+                <Box sx={{ p: 2 }}>
+                  {groupedProducts.rakuten.length > 0 ? (
+                    groupedProducts.rakuten.slice(0, PRODUCTS_PER_SOURCE).map((product, index) => (
+                      <Box key={index} sx={{ 
+                        mb: 2, 
+                        p: 2, 
+                        bgcolor: 'white', 
+                        borderRadius: 1,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                        '&:last-child': { mb: 0 }
+                      }}>
+                        <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                          <Box
+                            component="img"
+                            src={imageErrors[`rakuten-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
+                            alt={product.title || '商品画像'}
+                            onError={() => handleImageError(`rakuten-${index}`)}
+                            sx={{ 
+                              width: 80, 
+                              height: 80, 
+                              objectFit: 'contain',
+                              border: '1px solid #eee',
+                              borderRadius: 1,
+                              p: 1
+                            }}
+                          />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                mb: 1, 
+                                display: '-webkit-box',
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                lineHeight: 1.3,
+                                height: '3.9em'
+                              }}
+                            >
+                              {product.title || NO_TITLE_JP}
+                            </Typography>
+                            <Typography variant="h6" color="#BF0000" fontWeight="bold">
+                              {formatPrice(product.price)}円
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button
+                            component="a"
+                            href={product.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            variant="outlined"
+                            size="small"
+                            sx={{ 
+                              color: '#BF0000', 
+                              borderColor: '#BF0000',
+                              '&:hover': {
+                                borderColor: '#BF0000',
+                                bgcolor: 'rgba(191, 0, 0, 0.04)'
+                              }
+                            }}
+                          >
+                            商品ページ
+                          </Button>
+                        </Box>
+                      </Box>
+                    ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                      商品が見つかりませんでした
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            </Grid>
+
+            {/* Yahoo Column */}
+            <Grid item xs={12} md={4}>
+              <Box sx={{ 
+                bgcolor: '#f8f8f8', 
+                borderRadius: 2, 
+                overflow: 'hidden',
+                height: '100%'
+              }}>
+                <Box sx={{ 
+                  bgcolor: '#6001D2', 
+                  color: 'white', 
+                  p: 1, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1
+                }}>
+                  <SiYahoo size={24} />
+                  <Typography variant="h6">Yahoo!ショッピング</Typography>
+                </Box>
+                <Box sx={{ p: 2 }}>
+                  {groupedProducts.yahoo.length > 0 ? (
+                    groupedProducts.yahoo.slice(0, PRODUCTS_PER_SOURCE).map((product, index) => (
+                      <Box key={index} sx={{ 
+                        mb: 2, 
+                        p: 2, 
+                        bgcolor: 'white', 
+                        borderRadius: 1,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                        '&:last-child': { mb: 0 }
+                      }}>
+                        <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                          <Box
+                            component="img"
+                            src={imageErrors[`yahoo-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
+                            alt={product.title || '商品画像'}
+                            onError={() => handleImageError(`yahoo-${index}`)}
+                            sx={{ 
+                              width: 80, 
+                              height: 80, 
+                              objectFit: 'contain',
+                              border: '1px solid #eee',
+                              borderRadius: 1,
+                              p: 1
+                            }}
+                          />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                mb: 1, 
+                                display: '-webkit-box',
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                lineHeight: 1.3,
+                                height: '3.9em'
+                              }}
+                            >
+                              {product.title || NO_TITLE_JP}
+                            </Typography>
+                            <Typography variant="h6" color="#6001D2" fontWeight="bold">
+                              {formatPrice(product.price)}円
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button
+                            component="a"
+                            href={product.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            variant="outlined"
+                            size="small"
+                            sx={{ 
+                              color: '#6001D2', 
+                              borderColor: '#6001D2',
+                              '&:hover': {
+                                borderColor: '#6001D2',
+                                bgcolor: 'rgba(96, 1, 210, 0.04)'
+                              }
+                            }}
+                          >
+                            商品ページ
+                          </Button>
+                        </Box>
+                      </Box>
+                    ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                      商品が見つかりませんでした
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            </Grid>
+          </Grid>
+        </Box>
+      )}
+
       {hasDetailedProducts && (
         <Box id="detailed-products">
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -257,7 +596,21 @@ export default function SearchResults({ results }: SearchResultsProps) {
                   />
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                      <Typography variant="h6" component="h3" gutterBottom noWrap sx={{ maxWidth: '70%' }}>
+                      <Typography 
+                        variant="h6" 
+                        component="h3" 
+                        gutterBottom 
+                        sx={{ 
+                          maxWidth: '70%',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          lineHeight: 1.3,
+                          height: 'auto',
+                          minHeight: '4em'
+                        }}
+                      >
                         {product.title || NO_TITLE_JP}
                       </Typography>
                       {product.rating && (
@@ -271,7 +624,9 @@ export default function SearchResults({ results }: SearchResultsProps) {
                     </Box>
                     
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                      {getStoreIcon(product.store)}
+                      {getStoreIcon(product.store || '') === 'Amazon' && <FaAmazon size={20} color="#FF9900" />}
+                      {getStoreIcon(product.store || '') === 'Rakuten' && <SiRakuten size={20} color="#BF0000" />}
+                      {getStoreIcon(product.store || '') === 'Yahoo' && <SiYahoo size={20} color="#6001D2" />}
                       <Typography variant="body2" sx={{ ml: 1 }}>
                         {product.store || UNKNOWN_STORE_JP}
                       </Typography>
