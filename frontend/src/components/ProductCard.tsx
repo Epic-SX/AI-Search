@@ -23,6 +23,17 @@ const AMAZON_IMAGE_DOMAINS = [
   'amazon.com'
 ];
 
+// Rakuten image domain patterns
+const RAKUTEN_IMAGE_DOMAINS = [
+  'thumbnail.image.rakuten.co.jp',
+  'shop.r10s.jp',
+  'tshop.r10s.jp',
+  'r.r10s.jp',
+  'www.rakuten.co.jp',
+  'rakuten.co.jp',
+  'image.rakuten.co.jp'
+];
+
 // Common Amazon product ASINs for testing
 const COMMON_ASINS = [
   'B07PXZNF4C', // Common Amazon product
@@ -60,6 +71,16 @@ export default function ProductCard({ product }: ProductCardProps) {
     try {
       const urlObj = new URL(url);
       return AMAZON_IMAGE_DOMAINS.some(domain => urlObj.hostname.includes(domain));
+    } catch {
+      return false;
+    }
+  };
+  
+  // Function to check if a URL is a Rakuten image
+  const isRakutenImage = (url: string): boolean => {
+    try {
+      const urlObj = new URL(url);
+      return RAKUTEN_IMAGE_DOMAINS.some(domain => urlObj.hostname.includes(domain));
     } catch {
       return false;
     }
@@ -163,7 +184,23 @@ export default function ProductCard({ product }: ProductCardProps) {
     // For non-Amazon products
     if (!(product.source || product.store || '').toLowerCase().includes('amazon')) {
       if (product.image_url && !product.image_url.includes('placehold.co')) {
-        setImageUrl(product.image_url);
+        // For Rakuten products, ensure the image URL uses https
+        if ((product.source || product.store || '').toLowerCase().includes('rakuten') || 
+            (product.source || product.store || '').toLowerCase().includes('楽天')) {
+          let rakutenImageUrl = product.image_url;
+          // Convert http to https if needed
+          if (rakutenImageUrl.startsWith('http:')) {
+            rakutenImageUrl = rakutenImageUrl.replace('http:', 'https:');
+          }
+          // Add a size parameter if it doesn't have one
+          if (!rakutenImageUrl.includes('_ex=')) {
+            rakutenImageUrl = `${rakutenImageUrl}?_ex=300x300`;
+          }
+          console.log(`Using Rakuten image URL: ${rakutenImageUrl}`);
+          setImageUrl(rakutenImageUrl);
+        } else {
+          setImageUrl(product.image_url);
+        }
       } else {
         setImageUrl(getStoreFallback());
         setImageLoading(false);

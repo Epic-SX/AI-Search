@@ -70,6 +70,7 @@ export interface ProductInfo {
   rating?: number;
   features?: string[];
   asin?: string;  // Amazon Standard Identification Number for Amazon products
+  shipping_fee?: number; // Shipping fee for the product
 }
 
 // 商品比較結果の型定義

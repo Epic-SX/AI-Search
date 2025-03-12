@@ -1,12 +1,15 @@
-import { useState } from 'react';
-import { ImageSearchResult, ModelNumber } from '@/types';
+import { useState, useMemo } from 'react';
+import { ImageSearchResult, ModelNumber, ProductInfo, PriceInfo } from '@/types';
 import { FaExternalLinkAlt, FaStar, FaAmazon } from 'react-icons/fa';
 import { SiRakuten, SiYahoo } from 'react-icons/si';
+import { MdCompareArrows } from 'react-icons/md';
 import { 
   Grid, Typography, Card, CardContent, CardMedia, Box, Chip, Divider, 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, 
-  Button, Pagination, Stack, Tooltip 
+  Button, Pagination, Stack, Tooltip, Rating 
 } from '@mui/material';
+import SimpleAmazonImage from './SimpleAmazonImage';
+import SimpleRakutenImage from './SimpleRakutenImage';
 
 // Define a reliable fallback image URL
 const FALLBACK_IMAGE = "https://placehold.co/300x300/eee/999?text=No+Image";
@@ -18,6 +21,27 @@ const NO_TITLE_JP = '商品名なし';
 const NO_RESULTS_JP = '検索結果がありません';
 // Number of products per page
 const PRODUCTS_PER_PAGE = 6;
+
+// Function to process Rakuten image URLs
+const processRakutenImageUrl = (url: string): string => {
+  if (!url || url.includes('placehold.co')) {
+    return "https://placehold.co/300x300/BF0000/FFFFFF?text=Rakuten+Product";
+  }
+  
+  // Convert http to https if needed
+  let processedUrl = url;
+  if (processedUrl.startsWith('http:')) {
+    processedUrl = processedUrl.replace('http:', 'https:');
+  }
+  
+  // Add size parameter if needed
+  if (!processedUrl.includes('_ex=') && !processedUrl.includes('?_ex=')) {
+    processedUrl = `${processedUrl}${processedUrl.includes('?') ? '&' : '?'}_ex=300x300`;
+  }
+  
+  console.log(`Processed Rakuten image URL: ${processedUrl}`);
+  return processedUrl;
+};
 
 // Function to check if an image URL is likely to be a placeholder or invalid
 const isLikelyPlaceholder = (url: string): boolean => {
@@ -114,6 +138,8 @@ interface ImageSearchResultsProps {
 }
 
 export default function ImageSearchResults({ result }: ImageSearchResultsProps) {
+  console.log("Raw search result data:", result);
+  
   const [imageErrors, setImageErrors] = useState<{[key: string]: boolean}>({});
   const [currentPage, setCurrentPage] = useState(1);
   
@@ -192,6 +218,13 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
     }
   };
 
+  // Check if we have any product data
+  const hasProducts = (
+    (result.detailed_products && result.detailed_products.length > 0) || 
+    (result.price_comparison && result.price_comparison.length > 0)
+  );
+  console.log("Has products:", hasProducts);
+
   // If no results at all, show a message
   if (!hasPriceComparison && !hasDetailedProducts) {
     return (
@@ -217,8 +250,249 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
     return null;
   };
 
+  const getStoreColor = (storeName: string, isHover: boolean = false): string => {
+    const lowerStoreName = (storeName || '').toLowerCase();
+    
+    if (lowerStoreName.includes('amazon')) {
+      return isHover ? '#e68a00' : '#FF9900';
+    } else if (lowerStoreName.includes('rakuten') || lowerStoreName.includes('楽天')) {
+      return isHover ? '#a00000' : '#BF0000';
+    } else if (lowerStoreName.includes('yahoo') || lowerStoreName.includes('ヤフー')) {
+      return isHover ? '#5001b2' : '#6001D2';
+    }
+    
+    return isHover ? '#1565c0' : '#1976d2'; // Default MUI blue
+  };
+  
+  // Group products by store for better handling
+  const groupedProducts = useMemo(() => {
+    console.log("Grouping products with:", { 
+      detailed_products: result.detailed_products?.length || 0,
+      price_comparison: result.price_comparison?.length || 0
+    });
+    
+    // Initialize groups
+    const groups = {
+      amazon: [] as ProductInfo[],
+      rakuten: [] as ProductInfo[],
+      yahoo: [] as ProductInfo[],
+      other: [] as ProductInfo[]
+    };
+    
+    // First process detailed products
+    if (result.detailed_products && result.detailed_products.length > 0) {
+      result.detailed_products.forEach(product => {
+        // First check the source field which is more reliable
+        if (product.source) {
+          const source = product.source.toLowerCase();
+          if (source === 'amazon') {
+            groups.amazon.push(product);
+            return;
+          } else if (source === 'rakuten') {
+            groups.rakuten.push(product);
+            return;
+          } else if (source === 'yahoo') {
+            groups.yahoo.push(product);
+            return;
+          }
+        }
+        
+        // If source is not available, try to determine from store or URL
+        let store = product.store?.toLowerCase() || '';
+        
+        // If store is not set, try to determine from URL
+        if (!store && product.url) {
+          if (product.url.includes('amazon')) {
+            store = 'amazon';
+          } else if (product.url.includes('rakuten')) {
+            store = 'rakuten';
+          } else if (product.url.includes('yahoo')) {
+            store = 'yahoo';
+          }
+        }
+        
+        // Assign to appropriate group
+        if (store.includes('amazon')) {
+          groups.amazon.push(product);
+        } else if (store.includes('rakuten') || store.includes('楽天')) {
+          groups.rakuten.push(product);
+        } else if (store.includes('yahoo') || store.includes('ヤフー')) {
+          groups.yahoo.push(product);
+        } else {
+          groups.other.push(product);
+        }
+      });
+    }
+    
+    // Then process price comparison results
+    if (result.price_comparison && result.price_comparison.length > 0) {
+      result.price_comparison.forEach(item => {
+        // Skip if we already have this product from detailed_products
+        // This is a simple check - in a real app you might want to check by URL or ID
+        
+        // First check the source field which is more reliable
+        if ('source' in item) {
+          const source = (item as any).source.toLowerCase();
+          const productInfo: ProductInfo = {
+            ...item,
+            source: (item as any).source
+          };
+          
+          if (source === 'amazon') {
+            if (!groups.amazon.some(p => p.url === item.url)) {
+              groups.amazon.push(productInfo);
+            }
+            return;
+          } else if (source === 'rakuten') {
+            if (!groups.rakuten.some(p => p.url === item.url)) {
+              groups.rakuten.push(productInfo);
+            }
+            return;
+          } else if (source === 'yahoo') {
+            if (!groups.yahoo.some(p => p.url === item.url)) {
+              groups.yahoo.push(productInfo);
+            }
+            return;
+          }
+        }
+        
+        // If source is not available, try to determine from store or URL
+        let store = item.store?.toLowerCase() || '';
+        
+        // If store is not set, try to determine from URL
+        if (!store && item.url) {
+          if (item.url.includes('amazon')) {
+            store = 'amazon';
+          } else if (item.url.includes('rakuten')) {
+            store = 'rakuten';
+          } else if (item.url.includes('yahoo')) {
+            store = 'yahoo';
+          }
+        }
+        
+        // Assign to appropriate group
+        if (store.includes('amazon')) {
+          if (!groups.amazon.some(p => p.url === item.url)) {
+            const productInfo: ProductInfo = {
+              ...item,
+              source: 'Amazon'
+            };
+            groups.amazon.push(productInfo);
+          }
+        } else if (store.includes('rakuten') || store.includes('楽天')) {
+          if (!groups.rakuten.some(p => p.url === item.url)) {
+            const productInfo: ProductInfo = {
+              ...item,
+              source: 'Rakuten'
+            };
+            groups.rakuten.push(productInfo);
+          }
+        } else if (store.includes('yahoo') || store.includes('ヤフー')) {
+          if (!groups.yahoo.some(p => p.url === item.url)) {
+            const productInfo: ProductInfo = {
+              ...item,
+              source: 'Yahoo'
+            };
+            groups.yahoo.push(productInfo);
+          }
+        } else {
+          if (!groups.other.some(p => p.url === item.url)) {
+            const productInfo: ProductInfo = {
+              ...item,
+              source: 'Other'
+            };
+            groups.other.push(productInfo);
+          }
+        }
+      });
+    }
+    
+    console.log("Grouped products before fallbacks:", {
+      amazon: groups.amazon.length,
+      rakuten: groups.rakuten.length,
+      yahoo: groups.yahoo.length,
+      other: groups.other.length
+    });
+    
+    // Add fallback products if needed
+    if (groups.amazon.length === 0) {
+      console.log("Adding fallback Amazon product");
+      groups.amazon.push({
+        title: "",
+        price: 0,
+        url: "https://www.amazon.co.jp/",
+        image_url: "",
+        source: "Amazon",
+        store: "Amazon"
+      });
+    }
+    
+    if (groups.rakuten.length === 0) {
+      console.log("Adding fallback Rakuten product");
+      groups.rakuten.push({
+        title: "",
+        price: 0,
+        url: "https://www.rakuten.co.jp/",
+        image_url: "",
+        source: "Rakuten",
+        store: "楽天市場"
+      });
+    }
+    
+    if (groups.yahoo.length === 0) {
+      console.log("Adding fallback Yahoo product");
+      groups.yahoo.push({
+        title: "",
+        price: 0,
+        url: "https://shopping.yahoo.co.jp/",
+        image_url: "",
+        source: "Yahoo",
+        store: "Yahoo!ショッピング"
+      });
+    }
+    
+    // Sort products by price (lowest first)
+    Object.keys(groups).forEach(key => {
+      groups[key as keyof typeof groups].sort((a, b) => {
+        const priceA = a.price !== undefined ? a.price : Infinity;
+        const priceB = b.price !== undefined ? b.price : Infinity;
+        return priceA - priceB;
+      });
+    });
+    
+    console.log("Final grouped products:", {
+      amazon: groups.amazon.length,
+      rakuten: groups.rakuten.length,
+      yahoo: groups.yahoo.length,
+      other: groups.other.length
+    });
+    
+    return groups;
+  }, [result.detailed_products, result.price_comparison]);
+
+  // Get the best product from each store
+  const bestAmazonProduct = useMemo(() => {
+    const product = groupedProducts.amazon[0];
+    console.log("Best Amazon product:", product);
+    return product;
+  }, [groupedProducts]);
+  
+  const bestRakutenProduct = useMemo(() => {
+    const product = groupedProducts.rakuten[0];
+    console.log("Best Rakuten product:", product);
+    return product;
+  }, [groupedProducts]);
+  
+  const bestYahooProduct = useMemo(() => {
+    const product = groupedProducts.yahoo[0];
+    console.log("Best Yahoo product:", product);
+    return product;
+  }, [groupedProducts]);
+
   return (
     <Box sx={{ mt: 4 }}>
+      {/* Debug information - only visible in development */}
+      
       {/* Display message if provided */}
       {result.message && (
         <Box sx={{ mb: 3, p: 2, bgcolor: '#FFF9C4', borderRadius: 1 }}>
@@ -335,11 +609,6 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
                       </Tooltip>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body1" fontWeight="bold" color="primary">
-                        {formatPrice(item.price)}円
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
                       {item.image_url ? (
                         <Box
                           component="img"
@@ -397,102 +666,365 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
         </Box>
       )}
 
-      {hasDetailedProducts && (
-        <Box id="detailed-products">
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h5">
-              詳細情報
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {totalProducts}件中 {(currentPage - 1) * PRODUCTS_PER_PAGE + 1}-{Math.min(currentPage * PRODUCTS_PER_PAGE, totalProducts)}件を表示
-            </Typography>
-          </Box>
-          
-          <Grid container spacing={3} sx={{ mb: 3 }}>
-            {getCurrentPageProducts().map((product, index) => {
-              // Check if this is an Amazon product
-              const isAmazonProduct = (product.source || product.store || '').toLowerCase().includes('amazon');
-              const productId = `detail-${index + (currentPage - 1) * PRODUCTS_PER_PAGE}`;
-              const hasImageError = imageErrors[productId];
-              
-              // Determine the image URL to use
-              let displayImageUrl = product.image_url || FALLBACK_IMAGE;
-              
-              // For Amazon products, use the image URL directly
-              if (isAmazonProduct && product.image_url) {
-                displayImageUrl = product.image_url;
-              } 
-              // For non-Amazon products or if there's an error
-              else if (hasImageError || isLikelyPlaceholder(displayImageUrl)) {
-                displayImageUrl = getProductImageUrl(product.image_url, product.store);
-              }
-              
-              return (
-                <Grid item xs={12} sm={6} md={4} key={index}>
-                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                    <CardMedia
-                      component="img"
-                      height="200"
-                      image={displayImageUrl}
-                      alt={product.title || '商品'}
-                      onError={() => handleImageError(productId)}
-                      sx={{ objectFit: 'contain', p: 2 }}
-                    />
-                    <CardContent sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6" component="div" gutterBottom noWrap>
-                        {product.title || NO_TITLE_JP}
-                      </Typography>
-                      <Typography variant="h5" color="primary" gutterBottom>
-                        ¥{formatPrice(product.price)}
-                      </Typography>
-                      
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
-                          {product.store || product.shop || UNKNOWN_STORE_JP}
-                        </Typography>
+      {/* EC Site Comparison Section */}
+      {hasProducts && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <MdCompareArrows size={24} />
+            EC サイト比較
+          </Typography>
+          <Grid container spacing={2}>
+            {/* Amazon Column */}
+            <Grid item xs={12} md={4}>
+              <Box sx={{ 
+                bgcolor: '#f8f8f8', 
+                borderRadius: 2, 
+                overflow: 'hidden',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                <Box sx={{ 
+                  bgcolor: '#FF9900', 
+                  color: 'white', 
+                  p: 1, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1
+                }}>
+                  <FaAmazon size={24} />
+                  <Typography variant="h6">Amazon</Typography>
+                </Box>
+                <Box sx={{ p: 2, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                  {bestAmazonProduct ? (
+                    <>
+                      <Box sx={{ textAlign: 'center', mb: 2 }}>
+                        {bestAmazonProduct.image_url ? (
+                          <SimpleAmazonImage 
+                            imageUrl={bestAmazonProduct.image_url}
+                            title={bestAmazonProduct.title}
+                            height={200}
+                          />
+                        ) : (
+                          <Box 
+                            sx={{ 
+                              width: '100%', 
+                              height: 150, 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              bgcolor: '#f5f5f5',
+                              mb: 1
+                            }}
+                          >
+                            <FaAmazon size={48} color="#FF9900" />
+                          </Box>
+                        )}
+                        {bestAmazonProduct.title && (
+                          <Typography variant="h6" gutterBottom>
+                            {bestAmazonProduct.title}
+                          </Typography>
+                        )}
                       </Box>
                       
-                      {(product as any).shipping_fee !== undefined && (
-                        <Typography variant="body2" color="text.secondary">
-                          送料: {(product as any).shipping_fee === 0 ? '無料' : `${formatPrice((product as any).shipping_fee)}円`}
+                      {bestAmazonProduct.price !== undefined && bestAmazonProduct.price > 0 ? (
+                        <Typography variant="h5" color="error" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center' }}>
+                          {formatPrice(bestAmazonProduct.price)}円
+                          {bestAmazonProduct.shipping_fee ? ` + 送料${formatPrice(bestAmazonProduct.shipping_fee)}円` : ''}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center' }}>
+                          価格情報なし
                         </Typography>
                       )}
                       
-                      <Box sx={{ mt: 2 }}>
-                        <Button
-                          component="a"
-                          href={product.url}
+                      {bestAmazonProduct.url && (
+                        <Button 
+                          variant="contained" 
+                          color="primary" 
+                          fullWidth 
+                          href={bestAmazonProduct.url} 
                           target="_blank"
-                          rel="noopener noreferrer"
-                          variant="contained"
-                          fullWidth
+                          sx={{ 
+                            mt: 'auto',
+                            bgcolor: '#FF9900',
+                            '&:hover': {
+                              bgcolor: '#e68a00',
+                            }
+                          }}
                           startIcon={<FaExternalLinkAlt />}
                         >
-                          商品ページへ
+                          商品ページ
                         </Button>
+                      )}
+                    </>
+                  ) : (
+                    <Box sx={{ textAlign: 'center', py: 4 }}>
+                      <Typography variant="body1">
+                        商品が見つかりませんでした
+                      </Typography>
+                      <Button 
+                        variant="outlined" 
+                        color="primary" 
+                        href="https://www.amazon.co.jp/" 
+                        target="_blank"
+                        sx={{ 
+                          mt: 2,
+                          color: '#FF9900',
+                          borderColor: '#FF9900',
+                          '&:hover': {
+                            borderColor: '#e68a00',
+                            bgcolor: 'rgba(255, 153, 0, 0.04)',
+                          }
+                        }}
+                        startIcon={<FaExternalLinkAlt />}
+                      >
+                        Amazonで検索
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+            </Grid>
+            
+            {/* Rakuten Column */}
+            <Grid item xs={12} md={4}>
+              <Box sx={{ 
+                bgcolor: '#f8f8f8', 
+                borderRadius: 2, 
+                overflow: 'hidden',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                <Box sx={{ 
+                  bgcolor: '#BF0000', 
+                  color: 'white', 
+                  p: 1, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1
+                }}>
+                  <SiRakuten size={24} />
+                  <Typography variant="h6">楽天市場</Typography>
+                </Box>
+                <Box sx={{ p: 2, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                  {bestRakutenProduct ? (
+                    <>
+                      <Box sx={{ textAlign: 'center', mb: 2 }}>
+                        {bestRakutenProduct.image_url ? (
+                          <SimpleRakutenImage 
+                            imageUrl={bestRakutenProduct.image_url}
+                            title={bestRakutenProduct.title}
+                            height={200}
+                          />
+                        ) : (
+                          <Box 
+                            sx={{ 
+                              width: '100%', 
+                              height: 150, 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              bgcolor: '#f5f5f5',
+                              mb: 1
+                            }}
+                          >
+                            <SiRakuten size={48} color="#BF0000" />
+                          </Box>
+                        )}
+                        {bestRakutenProduct.title && (
+                          <Typography variant="h6" gutterBottom>
+                            {bestRakutenProduct.title}
+                          </Typography>
+                        )}
                       </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              );
-            })}
+                      
+                      {bestRakutenProduct.price !== undefined && bestRakutenProduct.price > 0 ? (
+                        <Typography variant="h5" color="error" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center' }}>
+                          {formatPrice(bestRakutenProduct.price)}円
+                          {bestRakutenProduct.shipping_fee ? ` + 送料${formatPrice(bestRakutenProduct.shipping_fee)}円` : ''}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center' }}>
+                          価格情報なし
+                        </Typography>
+                      )}
+                      
+                      {bestRakutenProduct.url && (
+                        <Button 
+                          variant="contained" 
+                          color="primary" 
+                          fullWidth 
+                          href={bestRakutenProduct.url} 
+                          target="_blank"
+                          sx={{ 
+                            mt: 'auto',
+                            bgcolor: '#BF0000',
+                            '&:hover': {
+                              bgcolor: '#a00000',
+                            }
+                          }}
+                          startIcon={<FaExternalLinkAlt />}
+                        >
+                          商品ページ
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <Box sx={{ textAlign: 'center', py: 4 }}>
+                      <Typography variant="body1">
+                        商品が見つかりませんでした
+                      </Typography>
+                      <Button 
+                        variant="outlined" 
+                        color="primary" 
+                        href="https://www.rakuten.co.jp/" 
+                        target="_blank"
+                        sx={{ 
+                          mt: 2,
+                          color: '#BF0000',
+                          borderColor: '#BF0000',
+                          '&:hover': {
+                            borderColor: '#a00000',
+                            bgcolor: 'rgba(191, 0, 0, 0.04)',
+                          }
+                        }}
+                        startIcon={<FaExternalLinkAlt />}
+                      >
+                        楽天市場で検索
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+            </Grid>
+            
+            {/* Yahoo Column */}
+            <Grid item xs={12} md={4}>
+              <Box sx={{ 
+                bgcolor: '#f8f8f8', 
+                borderRadius: 2, 
+                overflow: 'hidden',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                <Box sx={{ 
+                  bgcolor: '#6001D2', 
+                  color: 'white', 
+                  p: 1, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1
+                }}>
+                  <SiYahoo size={24} />
+                  <Typography variant="h6">Yahoo!ショッピング</Typography>
+                </Box>
+                <Box sx={{ p: 2, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                  {bestYahooProduct ? (
+                    <>
+                      <Box sx={{ textAlign: 'center', mb: 2 }}>
+                        {bestYahooProduct.image_url ? (
+                          <Box 
+                            component="img" 
+                            src={bestYahooProduct.image_url} 
+                            alt={bestYahooProduct.title || 'Yahoo商品'}
+                            sx={{ 
+                              maxWidth: '100%', 
+                              maxHeight: 200, 
+                              objectFit: 'contain',
+                              mb: 1
+                            }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = FALLBACK_IMAGE;
+                            }}
+                          />
+                        ) : (
+                          <Box 
+                            sx={{ 
+                              width: '100%', 
+                              height: 150, 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              bgcolor: '#f5f5f5',
+                              mb: 1
+                            }}
+                          >
+                            <SiYahoo size={48} color="#6001D2" />
+                          </Box>
+                        )}
+                        {bestYahooProduct.title && (
+                          <Typography variant="h6" gutterBottom>
+                            {bestYahooProduct.title}
+                          </Typography>
+                        )}
+                      </Box>
+                      
+                      {bestYahooProduct.price !== undefined && bestYahooProduct.price > 0 ? (
+                        <Typography variant="h5" color="error" gutterBottom sx={{ fontWeight: 'bold', textAlign: 'center' }}>
+                          {formatPrice(bestYahooProduct.price)}円
+                          {bestYahooProduct.shipping_fee ? ` + 送料${formatPrice(bestYahooProduct.shipping_fee)}円` : ''}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center' }}>
+                          価格情報なし
+                        </Typography>
+                      )}
+                      
+                      {bestYahooProduct.url && (
+                        <Button 
+                          variant="contained" 
+                          color="primary" 
+                          fullWidth 
+                          href={bestYahooProduct.url} 
+                          target="_blank"
+                          sx={{ 
+                            mt: 'auto',
+                            bgcolor: '#6001D2',
+                            '&:hover': {
+                              bgcolor: '#5001b2',
+                            }
+                          }}
+                          startIcon={<FaExternalLinkAlt />}
+                        >
+                          商品ページ
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <Box sx={{ textAlign: 'center', py: 4 }}>
+                      <Typography variant="body1">
+                        商品が見つかりませんでした
+                      </Typography>
+                      <Button 
+                        variant="outlined" 
+                        color="primary" 
+                        href="https://shopping.yahoo.co.jp/" 
+                        target="_blank"
+                        sx={{ 
+                          mt: 2,
+                          color: '#6001D2',
+                          borderColor: '#6001D2',
+                          '&:hover': {
+                            borderColor: '#5001b2',
+                            bgcolor: 'rgba(96, 1, 210, 0.04)',
+                          }
+                        }}
+                        startIcon={<FaExternalLinkAlt />}
+                      >
+                        Yahoo!ショッピングで検索
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+            </Grid>
           </Grid>
-          
-          {totalPages > 1 && (
-            <Stack spacing={2} sx={{ mb: 4 }}>
-              <Pagination 
-                count={totalPages} 
-                page={currentPage} 
-                onChange={handlePageChange} 
-                color="primary" 
-                size="large"
-                sx={{ 
-                  display: 'flex',
-                  justifyContent: 'center'
-                }}
-              />
-            </Stack>
-          )}
         </Box>
       )}
     </Box>
