@@ -55,7 +55,7 @@ amazon_region = "ap-northeast-1"
 # Initialize the BatchKeywordGenerator
 batch_keyword_generator = BatchKeywordGenerator()
 
-def search_amazon_products(keywords, limit=100):
+def search_amazon_products(keywords, limit=5):
     """
     Amazon Product Advertising API を使用して商品を検索
     """
@@ -66,14 +66,14 @@ def search_amazon_products(keywords, limit=100):
         print(f"Error in Amazon search: {e}")
         return []
 
-def search_rakuten(keywords, limit=100):
+def search_rakuten(keywords, limit=5):
     """
     Rakuten商品情報を検索（スクレイピング優先）
     """
     # Always use scraping for better image results
     return _scrape_rakuten(keywords, limit)
 
-def _scrape_rakuten(keywords, limit=100):
+def _scrape_rakuten(keywords, limit=5):
     """
     Rakuten商品情報をスクレイピングで取得
     """
@@ -194,7 +194,7 @@ def _scrape_rakuten(keywords, limit=100):
         print(f"Error in Rakuten scraping: {e}")
         return _get_rakuten_fallback(keywords, limit)
 
-def _get_rakuten_fallback(keywords, limit=100):
+def _get_rakuten_fallback(keywords, limit=5):
     """
     Rakuten検索のフォールバック結果を生成
     """
@@ -269,7 +269,7 @@ def get_item_image_url(result):
     # Default Rakuten logo
     return "https://r.r10s.jp/com/img/home/logo/ogp.png"
 
-def search_yahoo(keywords, limit=100):
+def search_yahoo(keywords, limit=5):
     """
     Yahoo!ショッピングから商品情報を検索
     """
@@ -279,92 +279,89 @@ def search_yahoo(keywords, limit=100):
         print(f"Error in Yahoo search: {e}")
         return []
 
-@app.route('/api/search/product', methods=['POST'])
-def search_product():
-    """商品情報による検索API"""
+@app.route('/api/search', methods=['POST'])
+def search():
+    """商品検索API"""
     data = request.json
-    product_info = data.get('product_info')
-    direct_search = data.get('direct_search', False)  # Add direct search parameter
+    query = data.get('query', '')
     
-    print(f"DEBUG: Received search request for '{product_info}' with direct_search={direct_search}")
-    
-    if not product_info:
-        return jsonify({"error": "Product information is required"}), 400
+    if not query:
+        return jsonify({"error": "Search query is required"}), 400
     
     try:
-        # キーワード生成 (Skip AI enhancement if direct_search is True)
-        if direct_search:
-            # For direct search, first find model numbers related to the keyword
-            model_numbers = product_search.find_model_numbers(product_info)
-            keywords = model_numbers  # Use the model numbers as keywords
-            print(f"DEBUG: Direct search enabled. Using model numbers: {model_numbers}")
-        else:
-            try:
-                keywords = product_search.generate_search_keywords(product_info)
-                print(f"DEBUG: Generated keywords: {keywords}")
-            except ValueError as ve:
-                # If validation fails (e.g., short search term), use the original term as the keyword
-                print(f"Validation error for '{product_info}': {ve}. Using original term as keyword.")
-                keywords = [product_info]
+        # キーワード生成
+        keywords = product_search.generate_search_keywords(query)
         
         # 価格比較
-        price_results = []
-        try:
-            # Use direct search method when direct_search is true
-            if direct_search:
-                # Use the model numbers for search
-                price_results = price_comparison.compare_prices_with_model_numbers(keywords)
-            else:
-                price_results = price_comparison.compare_prices(product_info)
-        except Exception as e:
-            print(f"Error in price comparison: {e}")
-            # Continue with empty price results if this fails
+        price_results = price_comparison.compare_prices(query)
         
         # 詳細な商品情報を取得
-        detailed_products = []
-        try:
-            # Use direct search method when direct_search is true
-            if direct_search:
-                # Use the model numbers for search
-                detailed_products = price_comparison.get_detailed_products_with_model_numbers(keywords)
-            else:
-                detailed_products = price_comparison.get_detailed_products(product_info)
-                
-            # ProductDetailオブジェクトを辞書に変換
-            serializable_detailed_products = []
-            for product in detailed_products:
-                if hasattr(product, '__dict__'):
-                    # オブジェクトを辞書に変換
-                    product_dict = product.__dict__.copy()
-                    # 非シリアライズ可能なフィールドを削除
-                    if '_sa_instance_state' in product_dict:
-                        del product_dict['_sa_instance_state']
-                    serializable_detailed_products.append(product_dict)
-                else:
-                    # すでに辞書の場合はそのまま追加
-                    serializable_detailed_products.append(product)
-            
-            detailed_products = serializable_detailed_products
-        except Exception as e:
-            print(f"Error getting detailed products: {e}")
-            # Continue with empty detailed products if this fails
+        detailed_products = price_comparison.get_detailed_products(query)
         
+        # ProductDetailオブジェクトを辞書に変換
+        serializable_detailed_products = []
+        for product in detailed_products:
+            if hasattr(product, 'to_dict'):
+                # Use the to_dict method if available
+                product_dict = product.to_dict()
+                
+                # Ensure price is an integer
+                if 'price' in product_dict:
+                    try:
+                        if product_dict['price'] is None:
+                            product_dict['price'] = 0
+                        elif isinstance(product_dict['price'], str):
+                            # Remove currency symbols and commas
+                            price_str = product_dict['price'].replace('¥', '').replace(',', '').strip()
+                            # Extract only digits
+                            price_digits = ''.join(filter(str.isdigit, price_str))
+                            if price_digits:
+                                product_dict['price'] = int(price_digits)
+                            else:
+                                product_dict['price'] = 0
+                        else:
+                            # Ensure it's an integer
+                            product_dict['price'] = int(product_dict['price'])
+                    except Exception as e:
+                        print(f"Error converting price to integer: {e}")
+                        product_dict['price'] = 0
+                
+                serializable_detailed_products.append(product_dict)
+            else:
+                # すでに辞書の場合はそのまま追加
+                if isinstance(product, dict) and 'price' in product:
+                    try:
+                        if product['price'] is None:
+                            product['price'] = 0
+                        elif isinstance(product['price'], str):
+                            # Remove currency symbols and commas
+                            price_str = product['price'].replace('¥', '').replace(',', '').strip()
+                            # Extract only digits
+                            price_digits = ''.join(filter(str.isdigit, price_str))
+                            if price_digits:
+                                product['price'] = int(price_digits)
+                            else:
+                                product['price'] = 0
+                        else:
+                            # Ensure it's an integer
+                            product['price'] = int(product['price'])
+                    except Exception as e:
+                        print(f"Error converting price to integer: {e}")
+                        product['price'] = 0
+                
+                serializable_detailed_products.append(product)
+        
+        # 結果を返す
         return jsonify({
+            'query': query,
             'keywords': keywords,
-            'price_comparison': price_results,
-            'detailed_products': detailed_products,
-            'product_info': product_info
+            'price_results': price_results,
+            'detailed_products': serializable_detailed_products,
         })
+        
     except Exception as e:
-        print(f"Error in search_product endpoint: {e}")
-        # Return a graceful error response with as much information as possible
-        return jsonify({
-            "error": str(e),
-            "keywords": [product_info],  # Use original term as fallback
-            "price_comparison": [],
-            "detailed_products": [],
-            "product_info": product_info
-        }), 500
+        print(f"Error in search: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/search/batch', methods=['POST'])
 def batch_search():
@@ -381,8 +378,8 @@ def batch_search():
                 return jsonify({'error': 'Invalid product info list'}), 400
                 
             # 商品情報リストが大きすぎる場合はエラー
-            if len(product_info_list) > 100:
-                return jsonify({'error': 'Too many items. Maximum 100 items allowed.'}), 400
+            if len(product_info_list) > 5:
+                return jsonify({'error': 'Too many items. Maximum 5 items allowed.'}), 400
                 
             # キーワード生成 (Skip AI enhancement if direct_search is True)
             if direct_search:
@@ -520,7 +517,26 @@ def search_by_image():
                 
                 # 画像からモデル番号を抽出
                 try:
-                    model_numbers = image_search.extract_model_numbers(image_data=image_data)
+                    # 入力されたモデル番号を取得（URLからの抽出など）
+                    input_model = None
+                    
+                    # 画像ファイル名からモデル番号を抽出する試み
+                    import re
+                    model_patterns = [
+                        r'[A-Z0-9]{2,}-[A-Z0-9]{2,}',  # ABC-123 形式
+                        r'[A-Z]{2,}[0-9]{2,}',         # ABC123 形式
+                        r'[0-9]{2,}-[A-Z0-9]{2,}'      # 12-ABC 形式
+                    ]
+                    
+                    for pattern in model_patterns:
+                        matches = re.findall(pattern, filename)
+                        if matches:
+                            input_model = matches[0]
+                            print(f"Extracted model number from filename: {input_model}")
+                            break
+                    
+                    # モデル番号を抽出（入力されたモデル番号を優先）
+                    model_numbers = image_search.extract_model_numbers(image_data=image_data, input_model=input_model)
                     print(f"Extracted model numbers: {model_numbers}")
                 except Exception as e:
                     print(f"Error extracting model numbers: {e}")
@@ -538,9 +554,19 @@ def search_by_image():
                 
                 # モデル番号が見つかった場合、それを使って検索
                 if model_numbers:
-                    # 最も信頼度の高いモデル番号を使用
-                    best_model = model_numbers[0]['model_number']
+                    # 入力されたモデル番号と完全に一致するものを探す
+                    exact_match = None
+                    for model in model_numbers:
+                        if input_model and model['model_number'] == input_model:
+                            exact_match = model
+                            break
+                    
+                    # 完全一致するモデル番号がない場合は最も信頼度の高いものを使用
+                    best_model = exact_match['model_number'] if exact_match else model_numbers[0]['model_number']
                     print(f"Using model number for search: {best_model}")
+                    
+                    # 入力されたモデル番号と完全に一致するモデル番号のみを使用
+                    filtered_model_numbers = [model for model in model_numbers if model['model_number'] == best_model]
                     
                     try:
                         # モデル番号で検索
@@ -549,7 +575,7 @@ def search_by_image():
                         # 結果を返す
                         return jsonify({
                             'query_image': f"/api/uploads/{filename}",
-                            'model_numbers': model_numbers,
+                            'model_numbers': filtered_model_numbers,  # フィルタリングされたモデル番号のみを返す
                             'similar_products': [],
                             'price_comparison': search_results.get('price_comparison', []),
                             'detailed_products': search_results.get('detailed_products', [])
@@ -651,16 +677,30 @@ def search_by_image():
         elif 'image_url' in request.json:
             image_url = request.json['image_url']
             if not image_url:
-                return jsonify({'error': 'Invalid image URL'}), 400
+                return jsonify({'error': 'No image URL provided'}), 400
                 
             try:
-                # 画像URLからモデル番号を抽出
-                try:
-                    model_numbers = image_search.extract_model_numbers(image_url=image_url)
-                    print(f"Extracted model numbers from URL: {model_numbers}")
-                except Exception as e:
-                    print(f"Error extracting model numbers from URL: {e}")
-                    model_numbers = []
+                # 入力されたモデル番号を取得（URLからの抽出など）
+                input_model = None
+                
+                # URLからモデル番号を抽出する試み
+                import re
+                model_patterns = [
+                    r'[A-Z0-9]{2,}-[A-Z0-9]{2,}',  # ABC-123 形式
+                    r'[A-Z]{2,}[0-9]{2,}',         # ABC123 形式
+                    r'[0-9]{2,}-[A-Z0-9]{2,}'      # 12-ABC 形式
+                ]
+                
+                for pattern in model_patterns:
+                    matches = re.findall(pattern, image_url)
+                    if matches:
+                        input_model = matches[0]
+                        print(f"Extracted model number from URL: {input_model}")
+                        break
+                
+                # 画像からモデル番号を抽出（入力されたモデル番号を優先）
+                model_numbers = image_search.extract_model_numbers(image_url=image_url, input_model=input_model)
+                print(f"Extracted model numbers from URL image: {model_numbers}")
                 
                 # モデル番号が見つからない場合は画像の内容を分析
                 generic_term = None
@@ -674,9 +714,19 @@ def search_by_image():
                 
                 # モデル番号が見つかった場合、それを使って検索
                 if model_numbers:
-                    # 最も信頼度の高いモデル番号を使用
-                    best_model = model_numbers[0]['model_number']
+                    # 入力されたモデル番号と完全に一致するものを探す
+                    exact_match = None
+                    for model in model_numbers:
+                        if input_model and model['model_number'] == input_model:
+                            exact_match = model
+                            break
+                    
+                    # 完全一致するモデル番号がない場合は最も信頼度の高いものを使用
+                    best_model = exact_match['model_number'] if exact_match else model_numbers[0]['model_number']
                     print(f"Using model number for search: {best_model}")
+                    
+                    # 入力されたモデル番号と完全に一致するモデル番号のみを使用
+                    filtered_model_numbers = [model for model in model_numbers if model['model_number'] == best_model]
                     
                     try:
                         # モデル番号で検索
@@ -685,7 +735,7 @@ def search_by_image():
                         # 結果を返す
                         return jsonify({
                             'query_image': image_url,
-                            'model_numbers': model_numbers,
+                            'model_numbers': filtered_model_numbers,  # フィルタリングされたモデル番号のみを返す
                             'similar_products': [],
                             'price_comparison': search_results.get('price_comparison', []),
                             'detailed_products': search_results.get('detailed_products', [])
@@ -879,33 +929,8 @@ def uploaded_file(filename):
 # Fallback route for /uploads/ without /api prefix
 @app.route('/uploads/<filename>')
 def uploaded_file_fallback(filename):
-    """
-    アップロードされたファイルを提供（フォールバックルート）
-    """
+    """Fallback route for uploaded files"""
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-@app.route('/api/search', methods=['POST'])
-def search():
-    data = request.json
-    query = data.get('query', '')
-    sources = data.get('sources', ['rakuten', 'yahoo', 'amazon'])
-    
-    results = {}
-    
-    if 'rakuten' in sources:
-        rakuten_results = search_rakuten(query)
-        results['rakuten'] = rakuten_results
-    
-    if 'yahoo' in sources:
-        yahoo_results = search_yahoo(query)
-        results['yahoo'] = yahoo_results
-    
-    if 'amazon' in sources:
-        # Use the new Amazon PA-API function
-        amazon_results = search_amazon_products(query)
-        results['amazon'] = amazon_results
-    
-    return jsonify(results)
 
 @app.route('/api/search/enhance-keywords', methods=['POST'])
 def enhance_keywords():
@@ -964,8 +989,8 @@ def detailed_batch_search():
             return jsonify({'error': 'Invalid product info list'}), 400
             
         # 商品情報リストが大きすぎる場合はエラー
-        if len(product_info_list) > 100:
-            return jsonify({'error': 'Too many items. Maximum 100 items allowed.'}), 400
+        if len(product_info_list) > 5:
+            return jsonify({'error': 'Too many items. Maximum 5 items allowed.'}), 400
         
         results = []
         
@@ -973,10 +998,9 @@ def detailed_batch_search():
             try:
                 # キーワード生成 (Skip AI enhancement if direct_search is True)
                 if direct_search:
-                    # For direct search, first find model numbers related to the keyword
-                    model_numbers = product_search.find_model_numbers(product_info)
-                    keywords = model_numbers  # Use the model numbers as keywords
-                    print(f"DEBUG: Direct batch search enabled. Using model numbers: {model_numbers}")
+                    # For direct search, use the exact model number provided by the user
+                    keywords = [product_info]  # Use the exact input as the only keyword
+                    print(f"DEBUG: Direct search enabled. Using exact model number: {product_info}")
                 elif use_ai:
                     keywords = product_search.generate_search_keywords(product_info)
                 else:
@@ -987,7 +1011,7 @@ def detailed_batch_search():
                 try:
                     # Use direct search method when direct_search is true
                     if direct_search:
-                        # Use the model numbers for search
+                        # Use the exact model number for search
                         price_results = price_comparison.compare_prices_with_model_numbers(keywords)
                     else:
                         price_results = price_comparison.compare_prices(product_info)
@@ -999,10 +1023,21 @@ def detailed_batch_search():
                 try:
                     # Use direct search method when direct_search is true
                     if direct_search:
-                        # Use the model numbers for search
+                        # Use the exact model number for search
                         detailed_products = price_comparison.get_detailed_products_with_model_numbers(keywords)
                     else:
                         detailed_products = price_comparison.get_detailed_products(product_info)
+                        
+                    # Log the number of products by source
+                    sources = {}
+                    for product in detailed_products:
+                        source = getattr(product, 'source', 'unknown').lower()
+                        if source in sources:
+                            sources[source] += 1
+                        else:
+                            sources[source] = 1
+                    print(f"DEBUG: Products by source for '{product_info}': {sources}")
+                    
                 except Exception as e:
                     print(f"Error getting detailed products for '{product_info}': {e}")
                 
@@ -1010,7 +1045,7 @@ def detailed_batch_search():
                     'product_info': product_info,
                     'keywords': keywords,
                     'price_comparison': price_results,
-                    'detailed_products': [p.to_dict() for p in detailed_products],
+                    'detailed_products': [p.to_dict() if hasattr(p, 'to_dict') else p.__dict__ for p in detailed_products],
                     'error': None
                 })
             except Exception as e:
@@ -1058,7 +1093,7 @@ def batch_keywords():
             try:
                 # Use existing search functionality to get product info
                 amazon_api = AmazonAPI()
-                product_info = amazon_api.search_products(model_number, limit=1)
+                product_info = amazon_api.search_products(model_number, limit=5)
                 
                 if product_info and len(product_info) > 0:
                     # Extract relevant product information
@@ -1122,7 +1157,7 @@ def find_best_model():
             try:
                 # Use existing search functionality to get product info
                 amazon_api = AmazonAPI()
-                product_info = amazon_api.search_products(model_number, limit=1)
+                product_info = amazon_api.search_products(model_number, limit=5)
                 
                 if product_info and len(product_info) > 0:
                     # Extract relevant product information
@@ -1201,7 +1236,200 @@ def analyze_image():
         print(f"Error in image analysis: {e}")
         return jsonify({'error': str(e)}), 500
 
-
+@app.route('/api/search/product', methods=['POST'])
+def search_product():
+    """商品情報による検索API"""
+    data = request.json
+    product_info = data.get('product_info')
+    direct_search = data.get('direct_search', False)  # Add direct search parameter
+    
+    print(f"DEBUG: Received search request for '{product_info}' with direct_search={direct_search}")
+    
+    if not product_info:
+        return jsonify({"error": "Product information is required"}), 400
+    
+    try:
+        # キーワード生成 (Skip AI enhancement if direct_search is True)
+        if direct_search:
+            # For direct search, use the exact model number provided by the user
+            keywords = [product_info]  # Use the exact input as the only keyword
+            print(f"DEBUG: Direct search enabled. Using exact model number: {product_info}")
+        else:
+            try:
+                keywords = product_search.generate_search_keywords(product_info)
+                print(f"DEBUG: Generated keywords: {keywords}")
+            except ValueError as ve:
+                # If validation fails (e.g., short search term), use the original term as the keyword
+                print(f"Validation error for '{product_info}': {ve}. Using original term as keyword.")
+                keywords = [product_info]
+        
+        # 価格比較
+        price_results = []
+        try:
+            # Use direct search method when direct_search is true
+            if direct_search:
+                # Use the exact model number for search
+                price_results = price_comparison.compare_prices_with_model_numbers(keywords)
+            else:
+                price_results = price_comparison.compare_prices(product_info)
+                
+            # Debug price results
+            print(f"DEBUG: Price comparison results: {len(price_results)} items")
+            for i, result in enumerate(price_results):
+                if result.get('store', '').lower() == 'rakuten' or result.get('store', '').lower() == '楽天市場':
+                    print(f"DEBUG: Rakuten price result {i+1}: Price: {result.get('price')}, Type: {type(result.get('price'))}")
+        except Exception as e:
+            print(f"Error in price comparison: {e}")
+            # Continue with empty price results if this fails
+        
+        # 詳細な商品情報を取得
+        detailed_products = []
+        try:
+            # Use direct search method when direct_search is true
+            if direct_search:
+                # Use the exact model number for search
+                detailed_products = price_comparison.get_detailed_products_with_model_numbers(keywords)
+            else:
+                detailed_products = price_comparison.get_detailed_products(product_info)
+                
+            # Debug: Print Rakuten product data
+            print("DEBUG: Detailed products before sending to frontend:")
+            for product in detailed_products:
+                if hasattr(product, 'source') and product.source.lower() == 'rakuten':
+                    print(f"Rakuten product: {product.title}, Price: {product.price}, Type: {type(product.price)}")
+            
+            # ProductDetailオブジェクトを辞書に変換
+            serializable_detailed_products = []
+            for product in detailed_products:
+                if hasattr(product, 'to_dict'):
+                    # Use the to_dict method if available
+                    product_dict = product.to_dict()
+                    
+                    # Ensure price is an integer
+                    if 'price' in product_dict:
+                        try:
+                            if product_dict['price'] is None:
+                                product_dict['price'] = 0
+                            elif isinstance(product_dict['price'], str):
+                                # Remove currency symbols and commas
+                                price_str = product_dict['price'].replace('¥', '').replace(',', '').strip()
+                                # Extract only digits
+                                price_digits = ''.join(filter(str.isdigit, price_str))
+                                if price_digits:
+                                    product_dict['price'] = int(price_digits)
+                                else:
+                                    product_dict['price'] = 0
+                            else:
+                                # Ensure it's an integer
+                                product_dict['price'] = int(product_dict['price'])
+                        except Exception as e:
+                            print(f"Error converting price to integer: {e}")
+                            product_dict['price'] = 0
+                    
+                    serializable_detailed_products.append(product_dict)
+                elif hasattr(product, '__dict__'):
+                    # オブジェクトを辞書に変換
+                    product_dict = product.__dict__.copy()
+                    # 非シリアライズ可能なフィールドを削除
+                    if '_sa_instance_state' in product_dict:
+                        del product_dict['_sa_instance_state']
+                    
+                    # Ensure price is an integer
+                    if 'price' in product_dict:
+                        try:
+                            if product_dict['price'] is None:
+                                product_dict['price'] = 0
+                            elif isinstance(product_dict['price'], str):
+                                # Remove currency symbols and commas
+                                price_str = product_dict['price'].replace('¥', '').replace(',', '').strip()
+                                # Extract only digits
+                                price_digits = ''.join(filter(str.isdigit, price_str))
+                                if price_digits:
+                                    product_dict['price'] = int(price_digits)
+                                else:
+                                    product_dict['price'] = 0
+                            else:
+                                # Ensure it's an integer
+                                product_dict['price'] = int(product_dict['price'])
+                        except Exception as e:
+                            print(f"Error converting price to integer: {e}")
+                            product_dict['price'] = 0
+                    
+                    serializable_detailed_products.append(product_dict)
+                else:
+                    # すでに辞書の場合はそのまま追加
+                    if isinstance(product, dict) and 'price' in product:
+                        try:
+                            if product['price'] is None:
+                                product['price'] = 0
+                            elif isinstance(product['price'], str):
+                                # Remove currency symbols and commas
+                                price_str = product['price'].replace('¥', '').replace(',', '').strip()
+                                # Extract only digits
+                                price_digits = ''.join(filter(str.isdigit, price_str))
+                                if price_digits:
+                                    product['price'] = int(price_digits)
+                                else:
+                                    product['price'] = 0
+                            else:
+                                # Ensure it's an integer
+                                product['price'] = int(product['price'])
+                        except Exception as e:
+                            print(f"Error converting price to integer: {e}")
+                            product['price'] = 0
+                    
+                    serializable_detailed_products.append(product)
+            
+            # Debug: Print Rakuten product data after conversion
+            print("DEBUG: Detailed products after conversion:")
+            for product in serializable_detailed_products:
+                if isinstance(product, dict) and product.get('source', '').lower() == 'rakuten':
+                    print(f"Rakuten product: {product.get('title')}, Price: {product.get('price')}, Type: {type(product.get('price'))}")
+            
+            detailed_products = serializable_detailed_products
+            
+            # Log the number of products by source
+            sources = {}
+            for product in detailed_products:
+                source = product.get('source', 'unknown').lower()
+                if source in sources:
+                    sources[source] += 1
+                else:
+                    sources[source] = 1
+            print(f"DEBUG: Products by source: {sources}")
+            
+            # Check if we're missing any sources and log it
+            expected_sources = ['amazon', 'rakuten', 'yahoo']
+            for source in expected_sources:
+                if source not in sources:
+                    print(f"WARNING: No products found from {source}")
+            
+        except Exception as e:
+            print(f"Error getting detailed products: {e}")
+            # Continue with empty detailed products if this fails
+        
+        # Create a response object with all the data
+        response_data = {
+            'keywords': keywords,
+            'price_comparison': price_results,
+            'detailed_products': detailed_products,
+            'product_info': product_info
+        }
+        
+        # Log the response size
+        print(f"DEBUG: Response contains {len(detailed_products)} detailed products")
+        
+        return jsonify(response_data)
+    except Exception as e:
+        print(f"Error in search_product endpoint: {e}")
+        # Return a graceful error response with as much information as possible
+        return jsonify({
+            "error": str(e),
+            "keywords": [product_info],  # Use original term as fallback
+            "price_comparison": [],
+            "detailed_products": [],
+            "product_info": product_info
+        }), 500
 
 if __name__ == '__main__':
     # Print all available routes

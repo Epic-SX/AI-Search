@@ -129,7 +129,7 @@ class AmazonAPI:
         """
         try:
             # Use the Amazon Product Advertising API to get real product data
-            amazon_results = self._search_amazon_products(product_info, limit=1)
+            amazon_results = self._search_amazon_products(product_info, limit=5)
             
             if amazon_results and len(amazon_results) > 0:
                 product = amazon_results[0]
@@ -169,7 +169,7 @@ class AmazonAPI:
         """
         try:
             # Search for products on Amazon
-            amazon_results = self._search_amazon_products(product_info, limit=100)
+            amazon_results = self._search_amazon_products(product_info, limit=5)
             
             # Return all results if available
             if amazon_results and len(amazon_results) > 0:
@@ -185,7 +185,7 @@ class AmazonAPI:
         """
         try:
             # Search for products on Amazon
-            amazon_results = self._search_amazon_products(product_info, limit=100)
+            amazon_results = self._search_amazon_products(product_info, limit=5)
             
             # Format the results for price comparison
             price_results = []
@@ -206,7 +206,7 @@ class AmazonAPI:
             print(f"Error getting Amazon prices: {e}")
             return []
     
-    def _search_amazon_products(self, keywords, limit=100):
+    def _search_amazon_products(self, keywords, limit=5):
         """
         Search for products on Amazon using the Product Advertising API
         or fallback to scraping if the API is not available
@@ -230,7 +230,7 @@ class AmazonAPI:
         # If scraping fails, return empty list
         return []
     
-    def _search_with_scraping(self, keywords, limit=100):
+    def _search_with_scraping(self, keywords, limit=5):
         """
         Fallback to web scraping when API calls fail
         """
@@ -498,7 +498,7 @@ class AmazonAPI:
             print(f"Error in Amazon scraping: {e}")
             return self._get_fallback_results(keywords, limit)
     
-    def _get_fallback_results(self, keywords, limit=100):
+    def _get_fallback_results(self, keywords, limit=5):
         """
         Generate fallback results when scraping fails
         """
@@ -522,7 +522,7 @@ class AmazonAPI:
             '61yI7vWa83L'   # Known good image ID
         ]
         
-        for i in range(min(limit, 3)):
+        for i in range(min(limit, 5)):
             # Use a reliable ASIN but make it deterministic based on the keyword
             keyword_hash = hashlib.md5(keywords.encode()).hexdigest()
             asin_index = int(keyword_hash, 16) % len(reliable_asins)

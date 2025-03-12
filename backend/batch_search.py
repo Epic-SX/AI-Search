@@ -112,7 +112,7 @@ def main():
         print(f"Fetching product info for {model_number}...")
         try:
             # Use Amazon API to get product info
-            product_info = amazon_api.search_products(model_number, limit=1)
+            product_info = amazon_api.search_products(model_number, limit=5)
             
             if product_info and len(product_info) > 0:
                 # Extract relevant product information
