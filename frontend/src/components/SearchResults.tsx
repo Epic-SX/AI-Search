@@ -83,13 +83,24 @@ export default function SearchResults({ results }: SearchResultsProps) {
   };
 
   const getStoreName = (name: string) => {
+    // If name is empty, try to determine from URL
+    if (!name && results.detailed_products) {
+      // Find the product with this store name
+      const product = results.detailed_products.find(p => p.store === name || p.source === name);
+      if (product && product.url) {
+        if (product.url.includes('amazon')) return 'Amazon';
+        if (product.url.includes('rakuten.co.jp') || product.url.includes('r10s.jp')) return '楽天市場';
+        if (product.url.includes('yahoo')) return 'Yahoo!ショッピング';
+      }
+    }
+    
     const lowerStoreName = name?.toLowerCase() || '';
     if (lowerStoreName.includes('amazon')) {
       return 'Amazon';
-    } else if (lowerStoreName.includes('rakuten')) {
-      return 'Rakuten';
-    } else if (lowerStoreName.includes('yahoo')) {
-      return 'Yahoo!';
+    } else if (lowerStoreName.includes('rakuten') || lowerStoreName.includes('楽天')) {
+      return '楽天市場';
+    } else if (lowerStoreName.includes('yahoo') || lowerStoreName.includes('ヤフー')) {
+      return 'Yahoo!ショッピング';
     } else {
       return name || UNKNOWN_STORE_JP;
     }
@@ -98,8 +109,8 @@ export default function SearchResults({ results }: SearchResultsProps) {
   const getStoreIcon = (name: string) => {
     const lowerStoreName = name?.toLowerCase() || '';
     if (lowerStoreName.includes('amazon')) return 'Amazon';
-    if (lowerStoreName.includes('rakuten')) return 'Rakuten';
-    if (lowerStoreName.includes('yahoo')) return 'Yahoo';
+    if (lowerStoreName.includes('rakuten') || lowerStoreName.includes('楽天')) return 'Rakuten';
+    if (lowerStoreName.includes('yahoo') || lowerStoreName.includes('ヤフー')) return 'Yahoo';
     return 'Shop';
   };
 
@@ -119,8 +130,45 @@ export default function SearchResults({ results }: SearchResultsProps) {
     
     // Process each product from detailed_products
     results.detailed_products.forEach(product => {
+      // Determine store name, checking multiple sources
+      let storeName = product.store || '';
+      
+      // If store name is missing or unknown, try to determine from other sources
+      if (!storeName || storeName === UNKNOWN_STORE_JP) {
+        // Try source field
+        if (product.source) {
+          storeName = product.source;
+        }
+        // Try shop field
+        else if (product.shop) {
+          storeName = product.shop;
+        }
+        // Try to determine from URL
+        else if (product.url) {
+          if (product.url.includes('rakuten.co.jp') || product.url.includes('r10s.jp')) {
+            storeName = '楽天市場';
+          } else if (product.url.includes('amazon')) {
+            storeName = 'Amazon';
+          } else if (product.url.includes('yahoo')) {
+            storeName = 'Yahoo!ショッピング';
+          }
+        }
+        // Try to determine from image URL
+        else if (product.image_url) {
+          if (product.image_url.includes('thumbnail.image.rakuten.co.jp') || 
+              product.image_url.includes('r.r10s.jp') || 
+              product.image_url.includes('tshop.r10s.jp')) {
+            storeName = '楽天市場';
+          } else if (product.image_url.includes('amazon')) {
+            storeName = 'Amazon';
+          } else if (product.image_url.includes('yahoo')) {
+            storeName = 'Yahoo!ショッピング';
+          }
+        }
+      }
+      
       // Normalize the store name to ensure consistent grouping
-      const normalizedStoreName = getStoreName(product.store || '');
+      const normalizedStoreName = getStoreName(storeName);
       const currentCheapest = cheapestByStore.get(normalizedStoreName);
       
       // Skip products with no price
@@ -130,6 +178,8 @@ export default function SearchResults({ results }: SearchResultsProps) {
       
       // If we don't have a product for this store yet, or if this product is cheaper
       if (!currentCheapest || product.price < currentCheapest.price!) {
+        // Update the store name before adding to map
+        product.store = normalizedStoreName;
         cheapestByStore.set(normalizedStoreName, product);
       }
     });
@@ -161,13 +211,13 @@ export default function SearchResults({ results }: SearchResultsProps) {
       // First check the source field which is more reliable
       if (product.source) {
         const source = product.source.toLowerCase();
-        if (source === 'amazon') {
+        if (source.includes('amazon')) {
           grouped.amazon.push(product);
           return;
-        } else if (source === 'rakuten') {
+        } else if (source.includes('rakuten') || source.includes('楽天')) {
           grouped.rakuten.push(product);
           return;
-        } else if (source === 'yahoo') {
+        } else if (source.includes('yahoo') || source.includes('ヤフー')) {
           grouped.yahoo.push(product);
           return;
         }
@@ -178,23 +228,44 @@ export default function SearchResults({ results }: SearchResultsProps) {
         // If store is undefined, try to determine from the URL
         if (product.url && product.url.includes('amazon')) {
           product.store = 'Amazon';
-        } else if (product.url && product.url.includes('rakuten')) {
-          product.store = 'Rakuten';
+        } else if (product.url && (product.url.includes('rakuten') || product.url.includes('r10s.jp'))) {
+          product.store = '楽天市場';
         } else if (product.url && product.url.includes('yahoo')) {
-          product.store = 'Yahoo';
+          product.store = 'Yahoo!ショッピング';
         }
       }
       
-      const storeName = getStoreIcon(product.store || '').toLowerCase();
-      if (storeName === 'amazon') {
-        grouped.amazon.push(product);
-      } else if (storeName === 'rakuten') {
-        grouped.rakuten.push(product);
-      } else if (storeName === 'yahoo') {
-        grouped.yahoo.push(product);
-      } else {
-        grouped.other.push(product);
+      // Check store name
+      if (product.store) {
+        const storeName = product.store.toLowerCase();
+        if (storeName.includes('amazon')) {
+          grouped.amazon.push(product);
+          return;
+        } else if (storeName.includes('rakuten') || storeName.includes('楽天')) {
+          grouped.rakuten.push(product);
+          return;
+        } else if (storeName.includes('yahoo') || storeName.includes('ヤフー')) {
+          grouped.yahoo.push(product);
+          return;
+        }
       }
+      
+      // Last resort: check URL directly
+      if (product.url) {
+        if (product.url.includes('amazon')) {
+          grouped.amazon.push(product);
+          return;
+        } else if (product.url.includes('rakuten.co.jp') || product.url.includes('r10s.jp')) {
+          grouped.rakuten.push(product);
+          return;
+        } else if (product.url.includes('yahoo')) {
+          grouped.yahoo.push(product);
+          return;
+        }
+      }
+      
+      // If we can't determine the source, add to other
+      grouped.other.push(product);
     });
     
     // Log the grouped products for debugging
@@ -252,15 +323,45 @@ export default function SearchResults({ results }: SearchResultsProps) {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {bestPrices.map((item, index) => (
+                {bestPrices.map((item, index) => {
+                  // Determine store name from image URL if needed
+                  let displayStoreName = item.store || '';
+                  
+                  // If store name is missing or unknown, try to determine from image URL
+                  if (!displayStoreName || displayStoreName === UNKNOWN_STORE_JP) {
+                    if (item.image_url) {
+                      if (item.image_url.includes('thumbnail.image.rakuten.co.jp') || 
+                          item.image_url.includes('r.r10s.jp') || 
+                          item.image_url.includes('tshop.r10s.jp')) {
+                        displayStoreName = '楽天市場';
+                      } else if (item.image_url.includes('amazon')) {
+                        displayStoreName = 'Amazon';
+                      } else if (item.image_url.includes('yahoo')) {
+                        displayStoreName = 'Yahoo!ショッピング';
+                      }
+                    }
+                    
+                    // Also check URL if image URL didn't help
+                    if ((!displayStoreName || displayStoreName === UNKNOWN_STORE_JP) && item.url) {
+                      if (item.url.includes('rakuten.co.jp') || item.url.includes('r10s.jp')) {
+                        displayStoreName = '楽天市場';
+                      } else if (item.url.includes('amazon')) {
+                        displayStoreName = 'Amazon';
+                      } else if (item.url.includes('yahoo')) {
+                        displayStoreName = 'Yahoo!ショッピング';
+                      }
+                    }
+                  }
+                  
+                  return (
                   <TableRow key={index}>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {getStoreIcon(item.store || '') === 'Amazon' && <FaAmazon size={24} color="#FF9900" />}
-                        {getStoreIcon(item.store || '') === 'Rakuten' && <SiRakuten size={24} color="#BF0000" />}
-                        {getStoreIcon(item.store || '') === 'Yahoo' && <SiYahoo size={24} color="#6001D2" />}
+                        {getStoreIcon(displayStoreName) === 'Amazon' && <FaAmazon size={24} color="#FF9900" />}
+                        {getStoreIcon(displayStoreName) === 'Rakuten' && <SiRakuten size={24} color="#BF0000" />}
+                        {getStoreIcon(displayStoreName) === 'Yahoo' && <SiYahoo size={24} color="#6001D2" />}
                         <Typography variant="body2" fontWeight="medium">
-                          {item.store || UNKNOWN_STORE_JP}
+                          {displayStoreName || UNKNOWN_STORE_JP}
                         </Typography>
                       </Box>
                     </TableCell>
@@ -322,7 +423,8 @@ export default function SearchResults({ results }: SearchResultsProps) {
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>

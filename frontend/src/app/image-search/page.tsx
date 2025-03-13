@@ -24,165 +24,77 @@ export default function ImageSearchPage() {
     setLoading(true);
     setError(null);
     
+    let imageFile: File | null = null;
+    let imageUrl: string | null = null;
+    
+    // Check if formData is an object with image_url
+    if ('image_url' in formData) {
+      imageUrl = formData.image_url;
+    } else {
+      // It's a FormData object
+      imageFile = formData.get('image') as File;
+    }
+    
     try {
-      let result: ImageSearchResult;
+      let result;
       
-      if (formData instanceof FormData) {
-        const imageFile = formData.get('image') as File;
-        if (!imageFile) {
-          throw new Error('画像ファイルが見つかりません');
+      if (imageUrl) {
+        // Search by URL
+        result = await searchByImageUrl(imageUrl);
+      } else if (imageFile) {
+        // Search by file upload
+        result = await searchByImage(imageFile);
+        console.log('Image search result:', JSON.stringify(result, null, 2));
+        
+        // Fix the image URL path if it starts with /api/uploads/
+        if (result.query_image && result.query_image.startsWith('/api/uploads/')) {
+          // Replace with the correct URL that includes the API base URL
+          const filename = result.query_image.replace('/api/uploads/', '');
+          const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+          result.query_image = `${API_BASE_URL}/uploads/${filename}`;
         }
         
-        console.log(`Searching with image file: ${imageFile.name}, size: ${imageFile.size} bytes`);
-        
-        // Create a default empty result structure in case the API fails
-        const emptyResult: ImageSearchResult = {
-          similar_products: [],
-          price_comparison: [],
-          detailed_products: [],
-          query_image: URL.createObjectURL(imageFile),
-          model_numbers: []
-        };
-        
-        try {
-          result = await searchByImage(imageFile);
-          console.log('Image search result:', JSON.stringify(result, null, 2));
-          
-          // Fix the image URL path if it starts with /api/uploads/
-          if (result.query_image && result.query_image.startsWith('/api/uploads/')) {
-            // Replace with the correct URL that includes the API base URL
-            const filename = result.query_image.replace('/api/uploads/', '');
-            const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-            result.query_image = `${API_BASE_URL}/uploads/${filename}`;
-          }
-          
-          // Process Amazon product image URLs
-          if (result.detailed_products && result.detailed_products.length > 0) {
-            result.detailed_products = result.detailed_products.map(product => {
-              // Check if this is an Amazon product
-              const isAmazonProduct = (product.source || product.store || '').toLowerCase().includes('amazon');
+        // Process Amazon product image URLs
+        if (result.detailed_products && result.detailed_products.length > 0) {
+          // We no longer need to filter out Amazon fallback results since we're using the API
+          // Just process any image URLs that might need fixing
+          result.detailed_products = result.detailed_products.map(product => {
+            // Check if this is an Amazon product
+            const isAmazonProduct = (product.source || product.store || '').toLowerCase().includes('amazon');
+            
+            // If it's an Amazon product and has an image_url, ensure it's using the correct URL
+            if (isAmazonProduct && product.image_url) {
+              // Log the original image URL for debugging
+              console.log(`Processing Amazon product image: ${product.image_url}`);
               
-              // If it's an Amazon product and has an image_url, ensure it's using the correct URL
-              if (isAmazonProduct && product.image_url) {
-                // Log the original image URL for debugging
-                console.log(`Processing Amazon product image: ${product.image_url}`);
-                
-                // If the image URL is a placeholder or doesn't start with http, fix it
-                if (product.image_url.includes('placehold.co') || !product.image_url.startsWith('http')) {
-                  // If we have an ASIN, use it to generate a reliable image URL
-                  if (product.asin) {
-                    product.image_url = `https://m.media-amazon.com/images/I/${product.asin}._AC_SL1200_.jpg`;
-                  }
+              // If the image URL is a placeholder or doesn't start with http, fix it
+              if (product.image_url.includes('placehold.co') || !product.image_url.startsWith('http')) {
+                // If we have an ASIN, use it to generate a reliable image URL
+                if (product.asin) {
+                  product.image_url = `https://m.media-amazon.com/images/I/${product.asin}._AC_SL1200_.jpg`;
                 }
               }
-              
-              return product;
-            });
-          }
-        } catch (apiError) {
-          console.error('API error during image search:', apiError);
-          
-          // Use the empty result but show an error message
-          result = emptyResult;
-          
-          // Try to analyze the image directly
-          try {
-            const analysisResult = await analyzeImage(formData);
-            if (analysisResult && analysisResult.generic_term) {
-              // If we got a generic term, use it to search
-              const genericTerm = analysisResult.generic_term;
-              console.log(`Using generic term for search: ${genericTerm}`);
-              
-              try {
-                const searchResult = await searchByProductInfo(genericTerm, true);
-                
-                // Update the result with the search results
-                result.price_comparison = searchResult.price_comparison;
-                result.detailed_products = searchResult.detailed_products;
-                result.generic_term = genericTerm;
-                
-                // Show a message to the user
-                result.message = `画像の認識に問題がありましたが、画像から「${genericTerm}」を検出して検索しました。`;
-              } catch (searchError) {
-                console.error('Error searching with generic term:', searchError);
-                result.message = `画像の認識に問題があり、代替検索も失敗しました。別の画像を試すか、手動で検索してください。`;
-                
-                // Show manual search option
-                setShowManualSearch(true);
-              }
-            } else {
-              result.message = '画像の認識に問題があります。別の画像を試すか、手動で検索してください。';
-              setShowManualSearch(true);
             }
-          } catch (analysisError) {
-            console.error('Error analyzing image:', analysisError);
-            result.message = '画像の認識に問題があります。別の画像を試すか、手動で検索してください。';
-            setShowManualSearch(true);
-          }
+            
+            return product;
+          });
         }
+      } else if (manualSearchTerm) {
+        // Search by manual text input
+        result = await searchByProductInfo(manualSearchTerm, true);
       } else {
-        console.log(`Searching with image URL: ${formData.image_url}`);
-        
-        // Create a default empty result structure in case the API fails
-        const emptyResult: ImageSearchResult = {
-          similar_products: [],
-          price_comparison: [],
-          detailed_products: [],
-          query_image: formData.image_url,
-          model_numbers: []
-        };
-        
-        try {
-          result = await searchByImageUrl(formData.image_url);
-          console.log('Image URL search result:', JSON.stringify(result, null, 2));
-        } catch (apiError) {
-          console.error('API error during image URL search:', apiError);
-          
-          // Use the empty result but show an error message
-          result = emptyResult;
-          
-          // Try to analyze the image directly
-          try {
-            const analysisResult = await analyzeImage({ image_url: formData.image_url });
-            if (analysisResult && analysisResult.generic_term) {
-              // If we got a generic term, use it to search
-              const genericTerm = analysisResult.generic_term;
-              console.log(`Using generic term for search: ${genericTerm}`);
-              
-              try {
-                const searchResult = await searchByProductInfo(genericTerm, true);
-                
-                // Update the result with the search results
-                result.price_comparison = searchResult.price_comparison;
-                result.detailed_products = searchResult.detailed_products;
-                result.generic_term = genericTerm;
-                
-                // Show a message to the user
-                result.message = `画像の認識に問題がありましたが、画像から「${genericTerm}」を検出して検索しました。`;
-              } catch (searchError) {
-                console.error('Error searching with generic term:', searchError);
-                result.message = `画像の認識に問題があり、代替検索も失敗しました。別の画像を試すか、手動で検索してください。`;
-                
-                // Show manual search option
-                setShowManualSearch(true);
-              }
-            } else {
-              result.message = '画像の認識に問題があります。別の画像を試すか、手動で検索してください。';
-              setShowManualSearch(true);
-            }
-          } catch (analysisError) {
-            console.error('Error analyzing image:', analysisError);
-            result.message = '画像の認識に問題があります。別の画像を試すか、手動で検索してください。';
-            setShowManualSearch(true);
-          }
-        }
+        throw new Error('No image or search term provided');
       }
       
-      setSearchResults([result]);
+      setSearchResults([result as ImageSearchResult]);
       setActiveResult(0);
-    } catch (error) {
-      console.error('Error during image search:', error);
-      setError('画像検索中にエラーが発生しました。もう一度お試しください。');
+    } catch (err) {
+      console.error('Search error:', err);
+      if (axios.isAxiosError(err) && err.response?.status === 500) {
+        setError('サーバーエラーが発生しました。しばらく経ってからもう一度お試しください。');
+      } else {
+        setError('検索中にエラーが発生しました。もう一度お試しください。');
+      }
     } finally {
       setLoading(false);
     }

@@ -1093,17 +1093,27 @@ def batch_keywords():
             try:
                 # Use existing search functionality to get product info
                 amazon_api = AmazonAPI()
-                product_info = amazon_api.search_products(model_number, limit=5)
+                product_info = amazon_api.search_items(model_number, limit=5)
                 
                 if product_info and len(product_info) > 0:
                     # Extract relevant product information
                     product = product_info[0]
-                    product_details = {
-                        "model_number": model_number,
-                        "title": product.get('title', ''),
-                        "features": product.get('features', []),
-                        "description": product.get('description', '')
-                    }
+                    # Check if product is a ProductDetail object
+                    if hasattr(product, 'title'):
+                        product_details = {
+                            "model_number": model_number,
+                            "title": product.title,
+                            "features": getattr(product, 'features', []),
+                            "description": getattr(product, 'description', '')
+                        }
+                    else:
+                        # Handle dictionary format
+                        product_details = {
+                            "model_number": model_number,
+                            "title": product.get('title', ''),
+                            "features": product.get('features', []),
+                            "description": product.get('description', '')
+                        }
                     product_info_list.append(product_details)
                 else:
                     # If no product info found, just use the model number
@@ -1157,17 +1167,27 @@ def find_best_model():
             try:
                 # Use existing search functionality to get product info
                 amazon_api = AmazonAPI()
-                product_info = amazon_api.search_products(model_number, limit=5)
+                product_info = amazon_api.search_items(model_number, limit=5)
                 
                 if product_info and len(product_info) > 0:
                     # Extract relevant product information
                     product = product_info[0]
-                    product_details = {
-                        "model_number": model_number,
-                        "title": product.get('title', ''),
-                        "features": product.get('features', []),
-                        "description": product.get('description', '')
-                    }
+                    # Check if product is a ProductDetail object
+                    if hasattr(product, 'title'):
+                        product_details = {
+                            "model_number": model_number,
+                            "title": product.title,
+                            "features": getattr(product, 'features', []),
+                            "description": getattr(product, 'description', '')
+                        }
+                    else:
+                        # Handle dictionary format
+                        product_details = {
+                            "model_number": model_number,
+                            "title": product.get('title', ''),
+                            "features": product.get('features', []),
+                            "description": product.get('description', '')
+                        }
                     product_info_list.append(product_details)
                 else:
                     # If no product info found, just use the model number
@@ -1239,16 +1259,16 @@ def analyze_image():
 @app.route('/api/search/product', methods=['POST'])
 def search_product():
     """商品情報による検索API"""
-    data = request.json
-    product_info = data.get('product_info')
-    direct_search = data.get('direct_search', False)  # Add direct search parameter
-    
-    print(f"DEBUG: Received search request for '{product_info}' with direct_search={direct_search}")
-    
-    if not product_info:
-        return jsonify({"error": "Product information is required"}), 400
-    
     try:
+        data = request.json
+        product_info = data.get('product_info')
+        direct_search = data.get('direct_search', False)  # Add direct search parameter
+        
+        print(f"DEBUG: Received search request for '{product_info}' with direct_search={direct_search}")
+        
+        if not product_info:
+            return jsonify({"error": "Product information is required"}), 400
+        
         # キーワード生成 (Skip AI enhancement if direct_search is True)
         if direct_search:
             # For direct search, use the exact model number provided by the user
@@ -1421,8 +1441,9 @@ def search_product():
         
         return jsonify(response_data)
     except Exception as e:
-        print(f"Error in search_product endpoint: {e}")
-        # Return a graceful error response with as much information as possible
+        print(f"Error in search_product: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "error": str(e),
             "keywords": [product_info],  # Use original term as fallback

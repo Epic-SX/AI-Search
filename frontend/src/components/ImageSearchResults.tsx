@@ -6,7 +6,7 @@ import { MdCompareArrows } from 'react-icons/md';
 import { 
   Grid, Typography, Card, CardContent, CardMedia, Box, Chip, Divider, 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, 
-  Button, Pagination, Stack, Tooltip, Rating 
+  Button, Pagination, Stack, Tooltip, Rating, Alert 
 } from '@mui/material';
 import SimpleAmazonImage from './SimpleAmazonImage';
 import SimpleRakutenImage from './SimpleRakutenImage';
@@ -21,6 +21,15 @@ const NO_TITLE_JP = '商品名なし';
 const NO_RESULTS_JP = '検索結果がありません';
 // Number of products per page
 const PRODUCTS_PER_PAGE = 6;
+
+// Extend the ProductInfo type to include additional properties
+interface ExtendedProductInfo extends ProductInfo {
+  additional_info?: {
+    is_fallback?: boolean;
+    [key: string]: any;
+  };
+  is_fallback?: boolean;
+}
 
 // Function to process Rakuten image URLs
 const processRakutenImageUrl = (url: string): string => {
@@ -236,18 +245,12 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
     );
   }
 
-  const getStoreIcon = (storeName: string) => {
-    const lowerStoreName = storeName.toLowerCase();
-    
-    if (lowerStoreName.includes('amazon')) {
-      return <FaAmazon size={24} color="#FF9900" />;
-    } else if (lowerStoreName.includes('rakuten') || lowerStoreName.includes('楽天')) {
-      return <SiRakuten size={24} color="#BF0000" />;
-    } else if (lowerStoreName.includes('yahoo') || lowerStoreName.includes('ヤフー')) {
-      return <SiYahoo size={24} color="#6001D2" />;
-    }
-    
-    return null;
+  const getStoreIcon = (name: string) => {
+    const lowerStoreName = name?.toLowerCase() || '';
+    if (lowerStoreName.includes('amazon')) return 'Amazon';
+    if (lowerStoreName.includes('rakuten')) return 'Rakuten';
+    if (lowerStoreName.includes('yahoo')) return 'Yahoo';
+    return 'Shop';
   };
 
   const getStoreColor = (storeName: string, isHover: boolean = false): string => {
@@ -264,211 +267,70 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
     return isHover ? '#1565c0' : '#1976d2'; // Default MUI blue
   };
   
-  // Group products by store for better handling
+  // Group products by source
   const groupedProducts = useMemo(() => {
-    console.log("Grouping products with:", { 
-      detailed_products: result.detailed_products?.length || 0,
-      price_comparison: result.price_comparison?.length || 0
-    });
+    if (!result.detailed_products || result.detailed_products.length === 0) {
+      return { amazon: [], rakuten: [], yahoo: [], other: [] };
+    }
     
-    // Initialize groups
-    const groups = {
-      amazon: [] as ProductInfo[],
-      rakuten: [] as ProductInfo[],
-      yahoo: [] as ProductInfo[],
-      other: [] as ProductInfo[]
+    const grouped = {
+      amazon: [] as ExtendedProductInfo[],
+      rakuten: [] as ExtendedProductInfo[],
+      yahoo: [] as ExtendedProductInfo[],
+      other: [] as ExtendedProductInfo[]
     };
     
-    // First process detailed products
-    if (result.detailed_products && result.detailed_products.length > 0) {
-      result.detailed_products.forEach(product => {
-        // First check the source field which is more reliable
-        if (product.source) {
-          const source = product.source.toLowerCase();
-          if (source === 'amazon') {
-            groups.amazon.push(product);
-            return;
-          } else if (source === 'rakuten') {
-            groups.rakuten.push(product);
-            return;
-          } else if (source === 'yahoo') {
-            groups.yahoo.push(product);
-            return;
-          }
-        }
-        
-        // If source is not available, try to determine from store or URL
-        let store = product.store?.toLowerCase() || '';
-        
-        // If store is not set, try to determine from URL
-        if (!store && product.url) {
-          if (product.url.includes('amazon')) {
-            store = 'amazon';
-          } else if (product.url.includes('rakuten')) {
-            store = 'rakuten';
-          } else if (product.url.includes('yahoo')) {
-            store = 'yahoo';
-          }
-        }
-        
-        // Assign to appropriate group
-        if (store.includes('amazon')) {
-          groups.amazon.push(product);
-        } else if (store.includes('rakuten') || store.includes('楽天')) {
-          groups.rakuten.push(product);
-        } else if (store.includes('yahoo') || store.includes('ヤフー')) {
-          groups.yahoo.push(product);
-        } else {
-          groups.other.push(product);
-        }
-      });
-    }
+    console.log("Detailed products:", result.detailed_products);
     
-    // Then process price comparison results
-    if (result.price_comparison && result.price_comparison.length > 0) {
-      result.price_comparison.forEach(item => {
-        // Skip if we already have this product from detailed_products
-        // This is a simple check - in a real app you might want to check by URL or ID
+    result.detailed_products.forEach(product => {
+      // Cast to ExtendedProductInfo to access additional properties
+      const extendedProduct = product as ExtendedProductInfo;
+      
+      // First check the source field which is more reliable
+      if (extendedProduct.source) {
+        const source = extendedProduct.source.toLowerCase();
         
-        // First check the source field which is more reliable
-        if ('source' in item) {
-          const source = (item as any).source.toLowerCase();
-          const productInfo: ProductInfo = {
-            ...item,
-            source: (item as any).source
-          };
-          
-          if (source === 'amazon') {
-            if (!groups.amazon.some(p => p.url === item.url)) {
-              groups.amazon.push(productInfo);
-            }
-            return;
-          } else if (source === 'rakuten') {
-            if (!groups.rakuten.some(p => p.url === item.url)) {
-              groups.rakuten.push(productInfo);
-            }
-            return;
-          } else if (source === 'yahoo') {
-            if (!groups.yahoo.some(p => p.url === item.url)) {
-              groups.yahoo.push(productInfo);
-            }
-            return;
-          }
+        if (source === 'amazon') {
+          grouped.amazon.push(extendedProduct);
+          return;
+        } else if (source === 'rakuten') {
+          grouped.rakuten.push(extendedProduct);
+          return;
+        } else if (source === 'yahoo') {
+          grouped.yahoo.push(extendedProduct);
+          return;
         }
-        
-        // If source is not available, try to determine from store or URL
-        let store = item.store?.toLowerCase() || '';
-        
-        // If store is not set, try to determine from URL
-        if (!store && item.url) {
-          if (item.url.includes('amazon')) {
-            store = 'amazon';
-          } else if (item.url.includes('rakuten')) {
-            store = 'rakuten';
-          } else if (item.url.includes('yahoo')) {
-            store = 'yahoo';
-          }
+      }
+      
+      // If source is not available, try to determine from store or URL
+      if (!extendedProduct.store) {
+        // If store is undefined, try to determine from the URL
+        if (extendedProduct.url && extendedProduct.url.includes('amazon')) {
+          extendedProduct.store = 'Amazon';
+        } else if (extendedProduct.url && extendedProduct.url.includes('rakuten')) {
+          extendedProduct.store = 'Rakuten';
+        } else if (extendedProduct.url && extendedProduct.url.includes('yahoo')) {
+          extendedProduct.store = 'Yahoo';
         }
-        
-        // Assign to appropriate group
-        if (store.includes('amazon')) {
-          if (!groups.amazon.some(p => p.url === item.url)) {
-            const productInfo: ProductInfo = {
-              ...item,
-              source: 'Amazon'
-            };
-            groups.amazon.push(productInfo);
-          }
-        } else if (store.includes('rakuten') || store.includes('楽天')) {
-          if (!groups.rakuten.some(p => p.url === item.url)) {
-            const productInfo: ProductInfo = {
-              ...item,
-              source: 'Rakuten'
-            };
-            groups.rakuten.push(productInfo);
-          }
-        } else if (store.includes('yahoo') || store.includes('ヤフー')) {
-          if (!groups.yahoo.some(p => p.url === item.url)) {
-            const productInfo: ProductInfo = {
-              ...item,
-              source: 'Yahoo'
-            };
-            groups.yahoo.push(productInfo);
-          }
-        } else {
-          if (!groups.other.some(p => p.url === item.url)) {
-            const productInfo: ProductInfo = {
-              ...item,
-              source: 'Other'
-            };
-            groups.other.push(productInfo);
-          }
-        }
-      });
-    }
-    
-    console.log("Grouped products before fallbacks:", {
-      amazon: groups.amazon.length,
-      rakuten: groups.rakuten.length,
-      yahoo: groups.yahoo.length,
-      other: groups.other.length
+      }
+      
+      // Get the store name and convert to lowercase for comparison
+      const storeIconName = getStoreIcon(extendedProduct.store || '');
+      const storeName = storeIconName.toLowerCase();
+      
+      if (storeName === 'amazon') {
+        grouped.amazon.push(extendedProduct);
+      } else if (storeName === 'rakuten') {
+        grouped.rakuten.push(extendedProduct);
+      } else if (storeName === 'yahoo') {
+        grouped.yahoo.push(extendedProduct);
+      } else {
+        grouped.other.push(extendedProduct);
+      }
     });
     
-    // Add fallback products if needed
-    if (groups.amazon.length === 0) {
-      console.log("Adding fallback Amazon product");
-      groups.amazon.push({
-        title: "",
-        price: 0,
-        url: "https://www.amazon.co.jp/",
-        image_url: "",
-        source: "Amazon",
-        store: "Amazon"
-      });
-    }
-    
-    if (groups.rakuten.length === 0) {
-      console.log("Adding fallback Rakuten product");
-      groups.rakuten.push({
-        title: "",
-        price: 0,
-        url: "https://www.rakuten.co.jp/",
-        image_url: "",
-        source: "Rakuten",
-        store: "楽天市場"
-      });
-    }
-    
-    if (groups.yahoo.length === 0) {
-      console.log("Adding fallback Yahoo product");
-      groups.yahoo.push({
-        title: "",
-        price: 0,
-        url: "https://shopping.yahoo.co.jp/",
-        image_url: "",
-        source: "Yahoo",
-        store: "Yahoo!ショッピング"
-      });
-    }
-    
-    // Sort products by price (lowest first)
-    Object.keys(groups).forEach(key => {
-      groups[key as keyof typeof groups].sort((a, b) => {
-        const priceA = a.price !== undefined ? a.price : Infinity;
-        const priceB = b.price !== undefined ? b.price : Infinity;
-        return priceA - priceB;
-      });
-    });
-    
-    console.log("Final grouped products:", {
-      amazon: groups.amazon.length,
-      rakuten: groups.rakuten.length,
-      yahoo: groups.yahoo.length,
-      other: groups.other.length
-    });
-    
-    return groups;
-  }, [result.detailed_products, result.price_comparison]);
+    return grouped;
+  }, [result.detailed_products]);
 
   // Get the best product from each store
   const bestAmazonProduct = useMemo(() => {
@@ -713,7 +575,7 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
                               height: 150, 
                               display: 'flex', 
                               alignItems: 'center', 
-                              justifyContent: 'center',
+                              justifyContent: 'center', 
                               bgcolor: '#f5f5f5',
                               mb: 1
                             }}
@@ -766,9 +628,10 @@ export default function ImageSearchResults({ result }: ImageSearchResultsProps) 
                       </Typography>
                       <Button 
                         variant="outlined" 
-                        color="primary" 
-                        href="https://www.amazon.co.jp/" 
+                        color="primary"
+                        href="https://www.amazon.co.jp/"
                         target="_blank"
+                        rel="noopener noreferrer"
                         sx={{ 
                           mt: 2,
                           color: '#FF9900',

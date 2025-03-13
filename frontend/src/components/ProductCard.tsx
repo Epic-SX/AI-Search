@@ -5,6 +5,7 @@ import { Card, CardContent, CardMedia, Typography, Box, Button, Skeleton } from 
 import { FaExternalLinkAlt } from 'react-icons/fa';
 import { ProductInfo } from '@/types';
 import SimpleAmazonImage from './SimpleAmazonImage';
+import SimpleRakutenImage from './SimpleRakutenImage';
 
 // Define a reliable fallback image URL
 const FALLBACK_IMAGE = "https://placehold.co/300x300/eee/999?text=No+Image";
@@ -183,24 +184,15 @@ export default function ProductCard({ product }: ProductCardProps) {
     
     // For non-Amazon products
     if (!(product.source || product.store || '').toLowerCase().includes('amazon')) {
-      if (product.image_url && !product.image_url.includes('placehold.co')) {
-        // For Rakuten products, ensure the image URL uses https
-        if ((product.source || product.store || '').toLowerCase().includes('rakuten') || 
-            (product.source || product.store || '').toLowerCase().includes('楽天')) {
-          let rakutenImageUrl = product.image_url;
-          // Convert http to https if needed
-          if (rakutenImageUrl.startsWith('http:')) {
-            rakutenImageUrl = rakutenImageUrl.replace('http:', 'https:');
-          }
-          // Add a size parameter if it doesn't have one
-          if (!rakutenImageUrl.includes('_ex=')) {
-            rakutenImageUrl = `${rakutenImageUrl}?_ex=300x300`;
-          }
-          console.log(`Using Rakuten image URL: ${rakutenImageUrl}`);
-          setImageUrl(rakutenImageUrl);
-        } else {
-          setImageUrl(product.image_url);
-        }
+      // For Rakuten products, don't set imageUrl - let SimpleRakutenImage handle it
+      if ((product.source || product.store || '').toLowerCase().includes('rakuten') || 
+          (product.source || product.store || '').toLowerCase().includes('楽天')) {
+        console.log(`Rakuten product detected, image URL: ${product.image_url}`);
+        setImageLoading(false);
+      } 
+      // For other non-Amazon, non-Rakuten products
+      else if (product.image_url && !product.image_url.includes('placehold.co')) {
+        setImageUrl(product.image_url);
       } else {
         setImageUrl(getStoreFallback());
         setImageLoading(false);
@@ -224,7 +216,45 @@ export default function ProductCard({ product }: ProductCardProps) {
   // Determine if this is an Amazon product
   const isAmazonProduct = (product.source || product.store || '').toLowerCase().includes('amazon');
   
-  // Determine the final image URL to display for non-Amazon products
+  // Determine if this is a Rakuten product
+  const isRakutenProduct = (product.source || product.store || '').toLowerCase().includes('rakuten') || 
+                          (product.source || product.store || '').toLowerCase().includes('楽天') ||
+                          (product.url || '').toLowerCase().includes('rakuten.co.jp') ||
+                          (product.url || '').toLowerCase().includes('r10s.jp');
+  
+  // Get the appropriate store name for display
+  const getDisplayStoreName = () => {
+    // First check if we have a direct store name
+    if (product.source) return product.source;
+    if (product.store) return product.store;
+    if (product.shop) return product.shop;
+    
+    // If not, determine from URL
+    if (isAmazonProduct) return 'Amazon';
+    if (isRakutenProduct) return '楽天市場';
+    
+    // Check URL patterns
+    if (product.url) {
+      if (product.url.includes('yahoo')) return 'Yahoo!ショッピング';
+    }
+    
+    // Last resort: check image URL patterns
+    if (product.image_url) {
+      if (product.image_url.includes('thumbnail.image.rakuten.co.jp') || 
+          product.image_url.includes('r.r10s.jp') || 
+          product.image_url.includes('tshop.r10s.jp')) {
+        return '楽天市場';
+      } else if (product.image_url.includes('amazon')) {
+        return 'Amazon';
+      } else if (product.image_url.includes('yahoo')) {
+        return 'Yahoo!ショッピング';
+      }
+    }
+    
+    return '不明なショップ';
+  };
+  
+  // Determine the final image URL to display for non-Amazon/non-Rakuten products
   const displayImageUrl = imageError ? getStoreFallback() : (imageUrl || FALLBACK_IMAGE);
   
   // Log the product data for debugging
@@ -242,7 +272,15 @@ export default function ProductCard({ product }: ProductCardProps) {
           <SimpleAmazonImage 
             imageUrl={product.image_url || ''}
             title={product.title}
-            height="100%"
+            height={200}
+          />
+        </Box>
+      ) : isRakutenProduct ? (
+        <Box sx={{ height: 200, p: 2 }}>
+          <SimpleRakutenImage 
+            imageUrl={product.image_url || ''}
+            title={product.title}
+            height={200}
           />
         </Box>
       ) : (
@@ -274,7 +312,7 @@ export default function ProductCard({ product }: ProductCardProps) {
         </Typography>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body2" color="text.secondary">
-            {product.source || product.store || product.shop || '不明なショップ'}
+            {getDisplayStoreName()}
           </Typography>
           {(product as any).rating && (
             <Typography variant="body2" color="text.secondary">

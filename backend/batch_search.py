@@ -111,20 +111,35 @@ def main():
     for model_number in cleaned_model_numbers:
         print(f"Fetching product info for {model_number}...")
         try:
-            # Use Amazon API to get product info
-            product_info = amazon_api.search_products(model_number, limit=5)
-            
-            if product_info and len(product_info) > 0:
+            # Search for products using the model number
+            product_info = amazon_api.search_items(model_number, limit=5)
+            if product_info:
+                print(f"Found {len(product_info)} products on Amazon for model number: {model_number}")
                 # Extract relevant product information
-                product = product_info[0]
-                product_details = {
-                    "model_number": model_number,
-                    "title": product.get('title', ''),
-                    "features": product.get('features', []),
-                    "description": product.get('description', '')
-                }
-                product_info_list.append(product_details)
-                print(f"Found product info for {model_number}")
+                if product_info and len(product_info) > 0:
+                    product = product_info[0]
+                    # Check if product is a ProductDetail object
+                    if hasattr(product, 'title'):
+                        product_details = {
+                            "model_number": model_number,
+                            "title": product.title,
+                            "features": getattr(product, 'features', []),
+                            "description": getattr(product, 'description', '')
+                        }
+                    else:
+                        # Handle dictionary format
+                        product_details = {
+                            "model_number": model_number,
+                            "title": product.get('title', ''),
+                            "features": product.get('features', []),
+                            "description": product.get('description', '')
+                        }
+                    product_info_list.append(product_details)
+                    print(f"Found product info for {model_number}")
+                else:
+                    # If no product info found, just use the model number
+                    product_info_list.append({"model_number": model_number})
+                    print(f"No product info found for {model_number}")
             else:
                 # If no product info found, just use the model number
                 product_info_list.append({"model_number": model_number})

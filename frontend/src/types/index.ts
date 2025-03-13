@@ -71,6 +71,10 @@ export interface ProductInfo {
   features?: string[];
   asin?: string;  // Amazon Standard Identification Number for Amazon products
   shipping_fee?: number; // Shipping fee for the product
+  additional_info?: {
+    is_fallback?: boolean;
+    [key: string]: any;
+  };
 }
 
 // 商品比較結果の型定義

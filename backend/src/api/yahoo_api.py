@@ -23,7 +23,7 @@ class YahooAPI:
                 'url': url,
                 'availability': True,
                 'title': f"{product_info} (Yahoo!ショッピング)",
-                'shop': "Yahoo!ショッピング",
+                'store': "Yahoo!ショッピング",
                 'image_url': f"https://placehold.co/300x300/eee/999?text=Yahoo+{encoded_keyword}"
             }
             
@@ -46,7 +46,7 @@ class YahooAPI:
                 "appid": self.client_id,
                 "query": product_info,
                 "sort": "+price",  # 価格の安い順
-                "results": 100  # 上位100件を取得
+                "results": 5  # 上位100件を取得
             }
             
             print(f"DEBUG: Sending request to Yahoo API with params: {params}")
@@ -122,5 +122,74 @@ class YahooAPI:
             products.append(product)
             
         return products
+
+    def get_multiple_prices(self, product_info):
+        """
+        Yahoo!ショッピングから複数の価格情報を取得
+        """
+        try:
+            print(f"DEBUG: Fetching Yahoo multiple prices for: {product_info}")
+            params = {
+                "appid": self.client_id,
+                "query": product_info,
+                "sort": "+price",  # 価格の安い順
+                "results": 5  # 上位5件を取得
+            }
+            
+            response = requests.get(f"{self.endpoint}/itemSearch", params=params)
+            
+            if response.status_code != 200:
+                print(f"Error: Yahoo API returned status code {response.status_code}")
+                return self._get_fallback_prices(product_info)
+                
+            result = response.json()
+            price_results = []
+            
+            if result.get("hits"):
+                print(f"DEBUG: Yahoo API returned {len(result['hits'])} products for price comparison")
+                for item in result["hits"]:
+                    price_info = {
+                        'store': item.get("store", {}).get("name", "Yahoo!ショッピング"),
+                        'title': item["name"],
+                        'price': item["price"],
+                        'url': item["url"],
+                        'shipping_fee': item.get("shipping", {}).get("fee", None),
+                        'image_url': item.get("image", {}).get("medium", "")
+                    }
+                    price_results.append(price_info)
+                
+                return price_results
+            else:
+                print("DEBUG: Yahoo API returned no hits for price comparison")
+                return self._get_fallback_prices(product_info)
+                
+        except Exception as e:
+            print(f"Error in Yahoo API price comparison: {e}")
+            return self._get_fallback_prices(product_info)
+    
+    def _get_fallback_prices(self, product_info, count=5):
+        """Generate fallback price information when the API fails."""
+        print(f"DEBUG: Generating fallback Yahoo price info for: {product_info}")
+        results = []
+        
+        # Create a hash of the keyword to generate consistent IDs
+        keyword_hash = hashlib.md5(product_info.encode()).hexdigest()
+        
+        # Generate some dummy price info
+        for i in range(count):
+            # Generate a price based on the hash
+            price = 1200 + ((int(keyword_hash[:8], 16) + i * 500) % 5000)
+            
+            price_info = {
+                'store': "Yahoo!ショッピング",
+                'title': f"{product_info} (Yahoo Item {i+1})",
+                'price': price,
+                'url': f"https://shopping.yahoo.co.jp/search?p={urllib.parse.quote(product_info)}",
+                'shipping_fee': None,
+                'image_url': "https://s.yimg.jp/images/auct/front/images/gift/no_image_small.gif"
+            }
+            results.append(price_info)
+            
+        return results
 
 yahoo_api = YahooAPI() 

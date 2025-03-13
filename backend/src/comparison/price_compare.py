@@ -180,12 +180,44 @@ class PriceComparisonEngine:
         """
         try:
             if hasattr(api, 'get_multiple_prices'):
-                return api.get_multiple_prices(product_info)
+                results = api.get_multiple_prices(product_info)
+                
+                # Ensure all results have a 'store' property
+                for result in results:
+                    # If 'store' is missing but 'shop' is present, copy 'shop' to 'store'
+                    if 'store' not in result and 'shop' in result:
+                        result['store'] = result['shop']
+                    # If neither 'store' nor 'shop' is present, set a default store name based on api_name
+                    elif 'store' not in result:
+                        if api_name.lower() == 'amazon':
+                            result['store'] = 'Amazon.co.jp'
+                        elif api_name.lower() == 'rakuten':
+                            result['store'] = '楽天市場'
+                        elif api_name.lower() == 'yahoo':
+                            result['store'] = 'Yahoo!ショッピング'
+                        else:
+                            result['store'] = api_name
+                
+                return results
             else:
                 # 単一の価格情報しか返さないAPIの場合
                 price_info = api.get_price(product_info)
                 if price_info:
                     price_info['source'] = api_name
+                    
+                    # Ensure the price_info has a 'store' property
+                    if 'store' not in price_info and 'shop' in price_info:
+                        price_info['store'] = price_info['shop']
+                    elif 'store' not in price_info:
+                        if api_name.lower() == 'amazon':
+                            price_info['store'] = 'Amazon.co.jp'
+                        elif api_name.lower() == 'rakuten':
+                            price_info['store'] = '楽天市場'
+                        elif api_name.lower() == 'yahoo':
+                            price_info['store'] = 'Yahoo!ショッピング'
+                        else:
+                            price_info['store'] = api_name
+                    
                     return [price_info]
                 return []
         except Exception as e:
@@ -204,6 +236,19 @@ class PriceComparisonEngine:
                 filtered_results = []
                 for result in results:
                     if product_info.lower() in result.get('title', '').lower():
+                        # Ensure the result has a 'store' property
+                        if 'store' not in result and 'shop' in result:
+                            result['store'] = result['shop']
+                        elif 'store' not in result:
+                            if api_name.lower() == 'amazon':
+                                result['store'] = 'Amazon.co.jp'
+                            elif api_name.lower() == 'rakuten':
+                                result['store'] = '楽天市場'
+                            elif api_name.lower() == 'yahoo':
+                                result['store'] = 'Yahoo!ショッピング'
+                            else:
+                                result['store'] = api_name
+                        
                         filtered_results.append(result)
                 
                 return filtered_results
@@ -212,6 +257,20 @@ class PriceComparisonEngine:
                 price_info = api.get_price(product_info)
                 if price_info and product_info.lower() in price_info.get('title', '').lower():
                     price_info['source'] = api_name
+                    
+                    # Ensure the price_info has a 'store' property
+                    if 'store' not in price_info and 'shop' in price_info:
+                        price_info['store'] = price_info['shop']
+                    elif 'store' not in price_info:
+                        if api_name.lower() == 'amazon':
+                            price_info['store'] = 'Amazon.co.jp'
+                        elif api_name.lower() == 'rakuten':
+                            price_info['store'] = '楽天市場'
+                        elif api_name.lower() == 'yahoo':
+                            price_info['store'] = 'Yahoo!ショッピング'
+                        else:
+                            price_info['store'] = api_name
+                    
                     return [price_info]
                 return []
         except Exception as e:
@@ -224,6 +283,25 @@ class PriceComparisonEngine:
         """
         if not results:
             return []
+            
+        # Ensure all results have a 'store' property
+        for result in results:
+            # If 'store' is missing but 'shop' is present, copy 'shop' to 'store'
+            if 'store' not in result and 'shop' in result:
+                result['store'] = result['shop']
+            # If neither 'store' nor 'shop' is present, set a default store name based on 'source'
+            elif 'store' not in result:
+                if 'source' in result:
+                    if result['source'].lower() == 'amazon':
+                        result['store'] = 'Amazon.co.jp'
+                    elif result['source'].lower() == 'rakuten':
+                        result['store'] = '楽天市場'
+                    elif result['source'].lower() == 'yahoo':
+                        result['store'] = 'Yahoo!ショッピング'
+                    else:
+                        result['store'] = result['source']
+                else:
+                    result['store'] = '不明なショップ'
             
         # 価格で昇順ソート
         sorted_results = sorted(results, key=lambda x: x['price'])

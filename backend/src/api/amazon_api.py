@@ -10,7 +10,7 @@ import base64
 import os
 from src.config.settings import AMAZON_PARTNER_TAG, AMAZON_ACCESS_KEY, AMAZON_SECRET_KEY, AMAZON_REGION, AMAZON_API_ENDPOINT
 import random
-from amazon_paapi import AmazonApi as PAAPI
+from amazon_paapi import AmazonApi
 from bs4 import BeautifulSoup
 import logging
 import re
@@ -20,11 +20,9 @@ from pathlib import Path
 
 # Import the Amazon Product Advertising API SDK
 try:
-    from amazon.paapi5.api.default_api import DefaultApi
-    from amazon.paapi5.models.partner_type import PartnerType
-    from amazon.paapi5.models.search_items_request import SearchItemsRequest
-    from amazon.paapi5.models.search_items_resource import SearchItemsResource
-    from amazon.paapi5.rest import ApiException
+    from amazon_paapi.models.condition import Condition
+    from amazon_paapi.models.merchant import Merchant
+    from amazon_paapi.models.sort_by import SortBy
     AMAZON_SDK_AVAILABLE = True
 except ImportError:
     print("Amazon PAAPI SDK not available, using fallback implementation")
@@ -32,16 +30,15 @@ except ImportError:
 
 # Constants for retry logic
 MAX_RETRIES = 3
-RETRY_DELAY_BASE = 1  # Base delay in seconds
-RETRY_DELAY_MAX = 5   # Maximum delay in seconds
+RETRY_DELAY_BASE = 1.0  # Base delay in seconds
+RETRY_DELAY_MAX = 10.0  # Maximum delay in seconds
 
 # List of rotating User-Agents
 USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0'
 ]
 
 class AmazonAPI:
@@ -60,15 +57,29 @@ class AmazonAPI:
         
         # Initialize Amazon PAAPI client
         try:
-            self.client = PAAPI(
-                AMAZON_ACCESS_KEY,
-                AMAZON_SECRET_KEY,
-                AMAZON_PARTNER_TAG,
-                'JP'  # Country code for Japan
-            )
-            print(f"Successfully initialized Amazon PAAPI client")
+            # Check if the amazon_paapi library is available
+            from amazon_paapi.api import AmazonApi
+            
+            # Check if we have all the required credentials
+            if not AMAZON_ACCESS_KEY or not AMAZON_SECRET_KEY or not AMAZON_PARTNER_TAG:
+                print("Missing Amazon API credentials. PAAPI client will not be initialized.")
+                self.client = None
+            else:
+                # Create the API client
+                print(f"Initializing Amazon PAAPI client with: Access Key: {AMAZON_ACCESS_KEY[:4]}..., Partner Tag: {AMAZON_PARTNER_TAG}, Region: {AMAZON_REGION}")
+                self.client = AmazonApi(
+                    key=AMAZON_ACCESS_KEY,
+                    secret=AMAZON_SECRET_KEY,
+                    tag=AMAZON_PARTNER_TAG,
+                    country='JP',  # Country code for Japan
+                    throttling=1.0  # Add a throttling parameter to avoid hitting rate limits
+                )
+                print(f"Successfully initialized Amazon PAAPI client")
         except Exception as e:
             print(f"Failed to initialize Amazon PAAPI client: {e}")
+            print(f"Error details: {str(e)}")
+            import traceback
+            traceback.print_exc()
             self.client = None
     
     def load_cache(self):
@@ -123,116 +134,684 @@ class AmazonAPI:
         if len(self.search_cache) % 10 == 0:
             self.save_cache()
 
-    def get_price(self, product_info):
+    def get_price(self, product_info, direct_search=True):
         """
         Amazonから商品価格情報を取得
+        
+        Args:
+            product_info (str): The product information (model number, keywords, etc.)
+            direct_search (bool): If True, use exact model number matching for model numbers
         """
         try:
+            # Check if this is a model number
+            is_model_number = re.match(r'^[A-Za-z0-9\-]+$', product_info)
+            
             # Use the Amazon Product Advertising API to get real product data
-            amazon_results = self._search_amazon_products(product_info, limit=5)
+            amazon_results = self._search_amazon_products(product_info, limit=5, direct_search=direct_search and is_model_number)
             
             if amazon_results and len(amazon_results) > 0:
                 product = amazon_results[0]
-                return {
-                    'price': self._extract_price(product.get('price', '0')),
-                    'url': product.get('url', ''),
-                    'availability': True,
-                    'title': product.get('title', f"{product_info} (Amazon)"),
-                    'shop': "Amazon.co.jp",
-                    'image_url': product.get('image', '')
-                }
+                
+                # If product is a ProductDetail object
+                if isinstance(product, ProductDetail):
+                    return {
+                        'price': product.price,
+                        'url': product.url,
+                        'availability': True,
+                        'title': product.title,
+                        'shop': "Amazon.co.jp",
+                        'image_url': product.image_url
+                    }
+                # If product is a dictionary
+                elif isinstance(product, dict):
+                    return {
+                        'price': self._extract_price(product.get('price', '0')),
+                        'url': product.get('url', ''),
+                        'availability': True,
+                        'title': product.get('title', f"{product_info} (Amazon)"),
+                        'shop': "Amazon.co.jp",
+                        'image_url': product.get('image_url', '')
+                    }
             else:
-                # Return a placeholder if no results
+                # Create a better search URL for the fallback
+                # For product codes, try to create a direct product URL first
+                fallback_url = ""
+                if re.match(r'^[A-Za-z0-9\-]+$', product_info):
+                    # Try direct product URL with clean code (no hyphens)
+                    clean_code = product_info.replace('-', '')
+                    if len(clean_code) == 10:  # ASIN length
+                        fallback_url = f"https://www.amazon.co.jp/dp/{clean_code}"
+                    else:
+                        # Try both with and without hyphens in the search
+                        fallback_url = f"https://www.amazon.co.jp/s?k={urllib.parse.quote(product_info)}+OR+{urllib.parse.quote(clean_code)}"
+                else:
+                    # Regular search URL
+                    fallback_url = f"https://www.amazon.co.jp/s?k={urllib.parse.quote(product_info)}"
+                
+                # Add affiliate tag if available
+                if AMAZON_PARTNER_TAG and '&tag=' not in fallback_url and '?tag=' not in fallback_url:
+                    separator = '&' if '?' in fallback_url else '?'
+                    fallback_url = f"{fallback_url}{separator}tag={AMAZON_PARTNER_TAG}"
+                
+                # Return a placeholder with the improved URL
                 return {
                     'price': 0,
-                    'url': f"https://www.amazon.co.jp/s?k={urllib.parse.quote(product_info)}&tag={AMAZON_PARTNER_TAG}",
+                    'url': fallback_url,
                     'availability': False,
                     'title': f"{product_info} (Amazon)",
                     'shop': "Amazon.co.jp",
-                    'image_url': ''
+                    'image_url': self.default_image
                 }
         except Exception as e:
-            print(f"Error getting Amazon price: {e}")
-            # Return a placeholder in case of error
+            print(f"Error in Amazon get_price: {e}")
+            # Return a fallback response
             return {
                 'price': 0,
-                'url': f"https://www.amazon.co.jp/s?k={urllib.parse.quote(product_info)}&tag={AMAZON_PARTNER_TAG}",
+                'url': f"https://www.amazon.co.jp/s?k={urllib.parse.quote(product_info)}",
                 'availability': False,
                 'title': f"{product_info} (Amazon)",
                 'shop': "Amazon.co.jp",
-                'image_url': ''
+                'image_url': self.default_image
             }
             
-    def get_product_details(self, product_info):
+    def get_product_details(self, product_info, direct_search=True):
         """
-        Get detailed product information from Amazon
+        Amazonから商品詳細情報を取得
+        
+        Args:
+            product_info (str): The product information (model number, keywords, etc.)
+            direct_search (bool): If True, use exact model number matching for model numbers
         """
         try:
-            # Search for products on Amazon
-            amazon_results = self._search_amazon_products(product_info, limit=5)
+            print(f"DEBUG: Fetching Amazon product details for: {product_info}")
             
-            # Return all results if available
-            if amazon_results and len(amazon_results) > 0:
-                return amazon_results
-            return []
+            # Check if this is a model number
+            is_model_number = re.match(r'^[A-Za-z0-9\-]+$', product_info)
+            
+            # Search for products on Amazon
+            amazon_results = self._search_amazon_products(product_info, limit=5, direct_search=direct_search and is_model_number)
+            
+            if not amazon_results:
+                print(f"DEBUG: No products found from Amazon for '{product_info}'")
+                return self._get_fallback_products(product_info)
+            
+            # Convert to ProductDetail objects if they aren't already
+            products = []
+            for item in amazon_results:
+                if isinstance(item, ProductDetail):
+                    # Already a ProductDetail object
+                    products.append(item)
+                elif isinstance(item, dict):
+                    # Convert dict to ProductDetail
+                    try:
+                        # Extract necessary information
+                        title = item.get('title', f"{product_info} (Amazon)")
+                        price = self._extract_price(item.get('price', '0'))
+                        image_url = item.get('image_url', self.default_image)
+                        url = item.get('url', '')
+                        asin = item.get('asin', '')
+                        
+                        # Create ProductDetail object
+                        product = ProductDetail(
+                            title=title,
+                            price=price,
+                            image_url=image_url,
+                            url=url,
+                            source="Amazon",
+                            shop="Amazon.co.jp",
+                            asin=asin,
+                            shipping_fee=0,  # Assume free shipping
+                            additional_info={"asin": asin}
+                        )
+                        products.append(product)
+                    except Exception as e:
+                        print(f"Error converting Amazon result to ProductDetail: {e}")
+            
+            print(f"DEBUG: Returning {len(products)} products from Amazon")
+            return products
         except Exception as e:
-            print(f"Error getting Amazon product details: {e}")
-            return []
+            print(f"Error in Amazon get_product_details: {e}")
+            return self._get_fallback_products(product_info)
     
-    def get_multiple_prices(self, product_info):
+    def get_multiple_prices(self, product_info, direct_search=True):
         """
         Get multiple price listings from Amazon
+        
+        Args:
+            product_info (str): The product information (model number, keywords, etc.)
+            direct_search (bool): If True, use exact model number matching for model numbers
         """
         try:
+            # Check if this is a model number
+            is_model_number = re.match(r'^[A-Za-z0-9\-]+$', product_info)
+            
             # Search for products on Amazon
-            amazon_results = self._search_amazon_products(product_info, limit=5)
+            amazon_results = self._search_amazon_products(product_info, limit=5, direct_search=direct_search and is_model_number)
             
             # Format the results for price comparison
             price_results = []
             for product in amazon_results:
-                if hasattr(product, 'price') and product.price:
-                    price_results.append({
-                        'source': 'Amazon',
-                        'title': product.title,
-                        'price': product.price,
-                        'url': product.url,
-                        'image_url': product.image_url,
-                        'rating': product.rating if hasattr(product, 'rating') else None,
-                        'review_count': product.review_count if hasattr(product, 'review_count') else None
-                    })
+                try:
+                    if isinstance(product, ProductDetail):
+                        # If it's a ProductDetail object
+                        if product.price is not None:
+                            price_results.append({
+                                'store': "Amazon.co.jp",
+                                'title': product.title,
+                                'price': product.price,
+                                'url': product.url,
+                                'image_url': product.image_url,
+                                'rating': product.rating if hasattr(product, 'rating') else None,
+                                'review_count': product.review_count if hasattr(product, 'review_count') else None
+                            })
+                    elif isinstance(product, dict):
+                        # If it's a dictionary
+                        if 'price' in product and product['price']:
+                            price_results.append({
+                                'store': "Amazon.co.jp",
+                                'title': product.get('title', ''),
+                                'price': self._extract_price(product['price']),
+                                'url': product.get('url', ''),
+                                'image_url': product.get('image_url', ''),
+                                'rating': product.get('rating', None),
+                                'review_count': product.get('review_count', None)
+                            })
+                except Exception as e:
+                    print(f"Error processing Amazon product for price comparison: {e}")
             
             return price_results
         except Exception as e:
             print(f"Error getting Amazon prices: {e}")
             return []
     
-    def _search_amazon_products(self, keywords, limit=5):
+    def search_items(self, keywords, limit=5, **kwargs):
+        """
+        Search for items using the Amazon Product Advertising API
+        
+        Args:
+            keywords (str): The search keywords
+            limit (int): Maximum number of results to return
+            **kwargs: Additional search parameters
+                - sort_by (str): Sort order (e.g., 'Relevance', 'Price:HighToLow', etc.)
+                - min_price (int): Minimum price in yen
+                - max_price (int): Maximum price in yen
+                - condition (str): Product condition ('New', 'Used', 'Collectible', 'Refurbished')
+                - merchant (str): Merchant type ('Amazon', 'All')
+                - category (str): Browse node ID or category name
+                - direct_search (bool): If True, only use the exact model number without variations
+        
+        Returns:
+            list: List of product dictionaries
+        """
+        try:
+            print(f"Searching Amazon for: {keywords} (limit: {limit})")
+            
+            # Check if we have a valid PAAPI client
+            if not self.client:
+                print("Amazon PAAPI client not initialized, using fallback implementation")
+                return self._search_amazon_products(keywords, limit)
+            
+            # Check if we have cached results
+            cached_results = self.get_cached_search(keywords)
+            if cached_results:
+                return cached_results[:limit]
+            
+            # Check if this is a direct search
+            direct_search = kwargs.get('direct_search', False)
+            
+            # Expand search keywords for better results
+            expanded_keywords = self._expand_search_keywords(keywords, direct_search)
+            print(f"Expanded search keywords: {expanded_keywords}")
+            
+            # Set up search parameters
+            search_params = {
+                'keywords': expanded_keywords,
+                'search_index': 'All',  # Search all categories
+                'item_count': min(10, limit)  # API allows max 10 items per request
+            }
+            
+            # Add optional parameters
+            if 'sort_by' in kwargs:
+                sort_mapping = {
+                    'relevance': 'Relevance',
+                    'price_high_to_low': 'Price:HighToLow',
+                    'price_low_to_high': 'Price:LowToHigh',
+                    'newest': 'NewestArrivals'
+                }
+                sort_value = sort_mapping.get(kwargs['sort_by'].lower(), 'Relevance')
+                search_params['sort_by'] = sort_value
+            
+            if 'min_price' in kwargs and kwargs['min_price']:
+                search_params['min_price'] = kwargs['min_price']
+            
+            if 'max_price' in kwargs and kwargs['max_price']:
+                search_params['max_price'] = kwargs['max_price']
+            
+            if 'category' in kwargs and kwargs['category']:
+                search_params['browse_node_id'] = kwargs['category']
+            
+            # Execute the search request
+            for attempt in range(MAX_RETRIES):
+                try:
+                    # Add a random delay between attempts with exponential backoff
+                    if attempt > 0:
+                        delay = min(RETRY_DELAY_MAX, RETRY_DELAY_BASE * (2 ** attempt))
+                        # Add jitter to appear more human-like
+                        delay = delay * (0.5 + random.random() * 1.5)
+                        print(f"Waiting {delay:.2f} seconds before retry {attempt + 1}/{MAX_RETRIES}")
+                        time.sleep(delay)
+                    
+                    # Execute the search
+                    print(f"Executing Amazon PAAPI search (attempt {attempt + 1}/{MAX_RETRIES})")
+                    search_result = self.client.search_items(**search_params)
+                    
+                    # Check if we have search results
+                    if not search_result or not hasattr(search_result, 'items') or not search_result.items:
+                        print(f"No items found in Amazon PAAPI response (attempt {attempt + 1}/{MAX_RETRIES})")
+                        continue
+                    
+                    # Process the search results
+                    results = []
+                    for item in search_result.items:
+                        try:
+                            # Extract ASIN
+                            asin = item.asin
+                            
+                            # Extract title
+                            title = "Amazon Product"
+                            if hasattr(item, 'item_info') and hasattr(item.item_info, 'title') and hasattr(item.item_info.title, 'display_value'):
+                                title = item.item_info.title.display_value
+                            
+                            # Extract price
+                            price = 0
+                            if hasattr(item, 'offers') and hasattr(item.offers, 'listings') and item.offers.listings:
+                                listing = item.offers.listings[0]
+                                if hasattr(listing, 'price') and hasattr(listing.price, 'amount'):
+                                    price = int(float(listing.price.amount))
+                            
+                            # Extract image URL
+                            image_url = self.default_image
+                            if hasattr(item, 'images') and hasattr(item.images, 'primary') and hasattr(item.images.primary, 'large'):
+                                image_url = item.images.primary.large.url
+                            
+                            # Extract product URL
+                            detail_page_url = f"https://www.amazon.co.jp/dp/{asin}?tag={AMAZON_PARTNER_TAG}"
+                            if hasattr(item, 'detail_page_url'):
+                                detail_page_url = item.detail_page_url
+                            
+                            # Add affiliate tag if not present
+                            if '&tag=' not in detail_page_url and '?tag=' not in detail_page_url:
+                                separator = '&' if '?' in detail_page_url else '?'
+                                detail_page_url = f"{detail_page_url}{separator}tag={AMAZON_PARTNER_TAG}"
+                            
+                            # Extract availability
+                            availability = False
+                            if hasattr(item, 'offers') and hasattr(item.offers, 'listings') and item.offers.listings:
+                                listing = item.offers.listings[0]
+                                if hasattr(listing, 'availability') and hasattr(listing.availability, 'type'):
+                                    availability = listing.availability.type == 'Now'
+                            
+                            # Create product data dictionary
+                            product_data = {
+                                "asin": asin,
+                                "title": title,
+                                "price": price,
+                                "url": detail_page_url,
+                                "image_url": image_url,
+                                "source": "amazon",
+                                "availability": availability
+                            }
+                            
+                            results.append(product_data)
+                        except Exception as e:
+                            print(f"Error processing Amazon PAAPI search result: {e}")
+                    
+                    # If we found products, cache and return them
+                    if results:
+                        print(f"Found {len(results)} products via Amazon PAAPI")
+                        self.cache_search_results(keywords, results)
+                        return results[:limit]
+                
+                except Exception as e:
+                    print(f"Error in Amazon PAAPI search (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
+            
+            # If we get here, all PAAPI attempts failed, try scraping
+            print("All Amazon PAAPI search attempts failed, trying scraping")
+            scrape_results = self._scrape_amazon_search(keywords, limit)
+            
+            # If scraping worked, cache and return the results
+            if scrape_results:
+                self.cache_search_results(keywords, scrape_results)
+                return scrape_results[:limit]
+            
+            # If all else fails, use fallback
+            print("All Amazon search methods failed, using fallback results")
+            return self._get_fallback_products(keywords, limit)
+        
+        except Exception as e:
+            print(f"Error in Amazon search_items: {e}")
+            return self._get_fallback_products(keywords, limit)
+
+    def _search_amazon_products(self, keywords, limit=5, direct_search=False):
         """
         Search for products on Amazon using the Product Advertising API
-        or fallback to scraping if the API is not available
-        """
-        # Check cache first
-        cached_results = self.get_cached_search(keywords)
-        if cached_results:
-            return cached_results[:limit]
-            
-        # Skip API attempts and go straight to scraping since we're having issues with the API
-        print(f"Using direct scraping for Amazon search: '{keywords}' with limit {limit}")
-        try:
-            results = self._search_with_scraping(keywords, limit)
-            if results:
-                # Cache the results
-                self.cache_search_results(keywords, results)
-                return results
-        except Exception as e:
-            print(f"Scraping failed: {e}")
+        This is a legacy method that now uses the search_items method
         
-        # If scraping fails, return empty list
-        return []
-    
-    def _search_with_scraping(self, keywords, limit=5):
+        Args:
+            keywords (str): The search keywords
+            limit (int): Maximum number of results to return
+            direct_search (bool): If True, only use the exact model number without variations
         """
-        Fallback to web scraping when API calls fail
+        try:
+            print(f"Searching Amazon for products matching: {keywords}")
+            
+            # Check if we have cached results
+            cached_results = self.get_cached_search(keywords)
+            if cached_results:
+                print(f"Using cached results for '{keywords}'")
+                return cached_results[:limit]
+            
+            # Try to use the PAAPI client first
+            if self.client:
+                try:
+                    # Use the new search_items method
+                    results = self.search_items(keywords, limit, direct_search=direct_search)
+                    if results:
+                        return results
+                except Exception as e:
+                    print(f"Error using PAAPI search: {e}")
+            
+            # If PAAPI failed or is not available, try direct product access for product codes
+            if re.match(r'^[A-Za-z0-9\-]+$', keywords):
+                print(f"Trying direct product access for product code: {keywords}")
+                direct_results = self._try_direct_product_access(keywords)
+                if direct_results:
+                    self.cache_search_results(keywords, direct_results)
+                    return direct_results[:limit]
+            
+            # If direct access failed or not applicable, try scraping
+            print(f"Trying to scrape Amazon search results for: {keywords}")
+            scrape_results = self._scrape_amazon_search(keywords, limit)
+            if scrape_results:
+                self.cache_search_results(keywords, scrape_results)
+                return scrape_results[:limit]
+            
+            # If all else fails, return fallback products
+            print(f"All Amazon search methods failed for '{keywords}', using fallback")
+            return self._get_fallback_products(keywords, limit)
+            
+        except Exception as e:
+            print(f"Error in _search_amazon_products: {e}")
+            return self._get_fallback_products(keywords, limit)
+            
+    def _try_direct_product_access(self, product_code):
+        """
+        Try to access a product directly using its ASIN or model number
+        """
+        try:
+            print(f"Trying direct product access for: {product_code}")
+            
+            # Clean the product code (remove hyphens)
+            clean_code = product_code.replace('-', '')
+            
+            # If the clean code is 10 characters (ASIN length), try direct access
+            if len(clean_code) == 10 and re.match(r'^[A-Z0-9]{10}$', clean_code, re.IGNORECASE):
+                print(f"Product code {product_code} appears to be an ASIN, trying direct access")
+                
+                # Try to use the PAAPI client first
+                if self.client:
+                    try:
+                        # Get item information using the ASIN
+                        response = self.client.get_items([clean_code])
+                        
+                        # Check if we have results
+                        if response and hasattr(response, 'items') and response.items:
+                            print(f"Successfully retrieved product {clean_code} via PAAPI")
+                            
+                            # Process the results
+                            results = []
+                            for item in response.items:
+                                try:
+                                    # Extract ASIN
+                                    asin = item.asin
+                                    
+                                    # Extract title
+                                    title = "Amazon Product"
+                                    if hasattr(item, 'item_info') and hasattr(item.item_info, 'title') and hasattr(item.item_info.title, 'display_value'):
+                                        title = item.item_info.title.display_value
+                                    
+                                    # Extract price
+                                    price = 0
+                                    if hasattr(item, 'offers') and hasattr(item.offers, 'listings') and item.offers.listings:
+                                        listing = item.offers.listings[0]
+                                        if hasattr(listing, 'price') and hasattr(listing.price, 'amount'):
+                                            price = int(float(listing.price.amount))
+                                    
+                                    # Extract image URL
+                                    image_url = self.default_image
+                                    if hasattr(item, 'images') and hasattr(item.images, 'primary') and hasattr(item.images.primary, 'large'):
+                                        image_url = item.images.primary.large.url
+                                    
+                                    # Extract product URL
+                                    detail_page_url = f"https://www.amazon.co.jp/dp/{asin}?tag={AMAZON_PARTNER_TAG}"
+                                    if hasattr(item, 'detail_page_url'):
+                                        detail_page_url = item.detail_page_url
+                                    
+                                    # Add affiliate tag if not present
+                                    if '&tag=' not in detail_page_url and '?tag=' not in detail_page_url:
+                                        separator = '&' if '?' in detail_page_url else '?'
+                                        detail_page_url = f"{detail_page_url}{separator}tag={AMAZON_PARTNER_TAG}"
+                                    
+                                    # Extract availability
+                                    availability = False
+                                    if hasattr(item, 'offers') and hasattr(item.offers, 'listings') and item.offers.listings:
+                                        listing = item.offers.listings[0]
+                                        if hasattr(listing, 'availability') and hasattr(listing.availability, 'type'):
+                                            availability = listing.availability.type == 'Now'
+                                    
+                                    # Create product data dictionary
+                                    product_data = {
+                                        "asin": asin,
+                                        "title": title,
+                                        "price": price,
+                                        "url": detail_page_url,
+                                        "image_url": image_url,
+                                        "source": "amazon",
+                                        "availability": availability
+                                    }
+                                    
+                                    results.append(product_data)
+                                except Exception as e:
+                                    print(f"Error processing Amazon PAAPI direct product result: {e}")
+                            
+                            # Return the results
+                            if results:
+                                return results
+                    except Exception as e:
+                        print(f"Error in PAAPI direct product access: {e}")
+                
+                # If PAAPI failed or is not available, try scraping
+                try:
+                    # Create the product URL
+                    product_url = f"https://www.amazon.co.jp/dp/{clean_code}"
+                    
+                    # Add a random delay to appear more human-like
+                    delay = RETRY_DELAY_BASE * (0.5 + random.random())
+                    print(f"Waiting {delay:.2f} seconds before scraping product page")
+                    time.sleep(delay)
+                    
+                    # Create a more realistic browser fingerprint
+                    user_agent = random.choice(USER_AGENTS)
+                    
+                    # Add realistic headers
+                    headers = {
+                        'User-Agent': user_agent,
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                        'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1',
+                        'Cache-Control': 'max-age=0'
+                    }
+                    
+                    # Make the request
+                    response = requests.get(product_url, headers=headers, timeout=10)
+                    
+                    if response.status_code == 200:
+                        # Parse the HTML
+                        soup = BeautifulSoup(response.text, 'html.parser')
+                        
+                        # Check for CAPTCHA
+                        if 'api-services-support@amazon.com' in response.text or 'Type the characters you see in this image' in response.text:
+                            print(f"CAPTCHA detected when accessing product {clean_code}")
+                            return None
+                        
+                        # Extract the title
+                        title = None
+                        title_elem = soup.select_one('#productTitle')
+                        if title_elem:
+                            title = title_elem.text.strip()
+                        
+                        if not title:
+                            title_elem = soup.select_one('h1.a-size-large')
+                            if title_elem:
+                                title = title_elem.text.strip()
+                        
+                        if not title:
+                            title = f"Amazon Product {clean_code}"
+                        
+                        # Extract the price
+                        price = 0
+                        price_elem = soup.select_one('.a-price .a-offscreen')
+                        if price_elem:
+                            price_text = price_elem.text.strip()
+                            # Remove currency symbols and commas
+                            price_digits = ''.join(filter(str.isdigit, price_text))
+                            if price_digits:
+                                price = int(price_digits)
+                        
+                        # Extract the image URL
+                        image_url = None
+                        img_elem = soup.select_one('#landingImage')
+                        if img_elem and img_elem.has_attr('src'):
+                            image_url = img_elem['src']
+                        
+                        if not image_url:
+                            img_elem = soup.select_one('#imgBlkFront')
+                            if img_elem and img_elem.has_attr('src'):
+                                image_url = img_elem['src']
+                        
+                        if not image_url:
+                            img_elem = soup.select_one('.a-dynamic-image')
+                            if img_elem and img_elem.has_attr('src'):
+                                image_url = img_elem['src']
+                        
+                        if not image_url:
+                            image_url = self.default_image
+                        
+                        # Create the product URL with affiliate tag
+                        product_url = f"https://www.amazon.co.jp/dp/{clean_code}?tag={AMAZON_PARTNER_TAG}"
+                        
+                        # Create a product data dictionary
+                        product_data = {
+                            "asin": clean_code,
+                            "title": title,
+                            "price": price,
+                            "url": product_url,
+                            "image_url": image_url,
+                            "source": "amazon",
+                            "availability": True
+                        }
+                        
+                        print(f"Successfully scraped product {clean_code}")
+                        return [product_data]
+                    else:
+                        print(f"Failed to scrape product {clean_code}: {response.status_code}")
+                except Exception as e:
+                    print(f"Error scraping product {clean_code}: {e}")
+            
+            # If we get here, direct product access failed
+            print(f"Direct product access failed for {product_code}")
+            return None
+        
+        except Exception as e:
+            print(f"Error in _try_direct_product_access: {e}")
+            return None
+
+    def _get_fallback_products(self, keywords, limit=5):
+        """
+        Generate fallback product results when all other methods fail
+        """
+        print(f"Generating fallback products for '{keywords}'")
+        
+        # Create a better search URL for the fallback
+        # For product codes, try to create a direct product URL first
+        fallback_url = ""
+        if re.match(r'^[A-Za-z0-9\-]+$', keywords):
+            # Try direct product URL with clean code (no hyphens)
+            clean_code = keywords.replace('-', '')
+            if len(clean_code) == 10:  # ASIN length
+                fallback_url = f"https://www.amazon.co.jp/dp/{clean_code}"
+            else:
+                # Try both with and without hyphens in the search
+                fallback_url = f"https://www.amazon.co.jp/s?k={urllib.parse.quote(keywords)}+OR+{urllib.parse.quote(clean_code)}"
+        else:
+            # Regular search URL
+            fallback_url = f"https://www.amazon.co.jp/s?k={urllib.parse.quote(keywords)}"
+        
+        # Add affiliate tag if available
+        if AMAZON_PARTNER_TAG and '&tag=' not in fallback_url and '?tag=' not in fallback_url:
+            separator = '&' if '?' in fallback_url else '?'
+            fallback_url = f"{fallback_url}{separator}tag={AMAZON_PARTNER_TAG}"
+        
+        # Create a single fallback product
+        fallback_product = {
+            "asin": "FALLBACK",
+            "title": f"{keywords} (Amazon)",
+            "price": 0,
+            "url": fallback_url,
+            "image_url": self.default_image,
+            "source": "amazon",
+            "availability": False
+        }
+        
+        # Return the requested number of fallback products
+        return [fallback_product] * min(limit, 1)
+
+    def _expand_search_keywords(self, keywords, direct_search=False):
+        """
+        Expand search keywords to improve match rate
+        
+        Args:
+            keywords (str): The search keywords
+            direct_search (bool): If True, only use the exact model number without variations
+        """
+        # For direct search with model numbers, don't expand keywords
+        if direct_search and re.match(r'^[A-Za-z0-9\-]+$', keywords):
+            print(f"Direct search enabled. Using exact model number: {keywords}")
+            return f'"{keywords}"'  # Just use the exact model number with quotes
+        
+        # For product codes, try to format them in different ways to improve search results
+        if re.match(r'^[A-Za-z0-9\-]+$', keywords):
+            # Create variations of the product code for better search results
+            variations = [
+                f'"{keywords}"',                     # Original with quotes
+                f'"{keywords.replace("-", "")}"',    # Without hyphens
+                f'"{" ".join(keywords.split("-"))}"' # Spaces instead of hyphens
+            ]
+            return " OR ".join(variations)
+        
+        # For regular keywords, just add quotes
+        return f'"{keywords}"'
+    
+    def _scrape_amazon_search(self, keywords, limit=5):
+        """
+        Scrape Amazon search results when API fails
         """
         try:
             # Encode the search query
@@ -246,18 +825,18 @@ class AmazonAPI:
                     # Add a random delay between attempts with exponential backoff
                     if attempt > 0:
                         delay = min(RETRY_DELAY_MAX, RETRY_DELAY_BASE * (2 ** attempt))
-                        # Add significant jitter to appear more human-like
-                        delay = delay * (0.5 + random.random() * 1.5)  # 50% to 200% of base delay
+                        # Add jitter to appear more human-like
+                        delay = delay * (0.5 + random.random() * 1.5)
                         print(f"Waiting {delay:.2f} seconds before retry {attempt + 1}/{MAX_RETRIES}")
                         time.sleep(delay)
                     
                     # Create a more realistic browser fingerprint
                     user_agent = random.choice(USER_AGENTS)
                     
-                    # Add more realistic headers that vary between requests
+                    # Add realistic headers
                     headers = {
                         'User-Agent': user_agent,
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
                         'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
                         'Accept-Encoding': 'gzip, deflate, br',
                         'DNT': '1',
@@ -267,47 +846,14 @@ class AmazonAPI:
                         'Sec-Fetch-Mode': 'navigate',
                         'Sec-Fetch-Site': 'none',
                         'Sec-Fetch-User': '?1',
-                        'Cache-Control': 'max-age=0',
-                        'Sec-Ch-Ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
-                        'Sec-Ch-Ua-Mobile': '?0',
-                        'Sec-Ch-Ua-Platform': '"Windows"',
-                        'Referer': 'https://www.google.com/',
+                        'Cache-Control': 'max-age=0'
                     }
                     
-                    # Add URL parameters to appear more like a real browser
-                    # Include a random session ID and timestamp to make each request unique
-                    session_id = hashlib.md5(f"{time.time()}{random.random()}".encode()).hexdigest()[:16]
-                    url_params = {
-                        'ref': 'sr_pg_1',
-                        'crid': f"{int(time.time())}",
-                        'qid': f"{int(time.time() * 1000)}",
-                        'sprefix': encoded_query,
-                        'ref': 'sr_nr_p_n_availability_1',
-                        'pf_rd_r': session_id,
-                        'pf_rd_p': hashlib.md5(f"{random.random()}".encode()).hexdigest()[:16],
-                    }
-                    
-                    url = f"{base_url}&{'&'.join(f'{k}={v}' for k, v in url_params.items())}"
-                    
-                    # Create a new session for each attempt to avoid cookie tracking
-                    if attempt > 0:
-                        self.session = requests.Session()
-                    
-                    # Add a random delay before the request to simulate human behavior
-                    time.sleep(0.5 + random.random() * 1.5)  # 0.5 to 2 seconds
-                    
-                    # Make the request with the session
-                    response = self.session.get(
-                        url, 
-                        headers=headers, 
-                        timeout=15,  # Increased timeout
-                        allow_redirects=True
-                    )
+                    # Make the request
+                    response = requests.get(base_url, headers=headers, timeout=10)
                     
                     if response.status_code == 503:
                         print(f"Amazon returned 503 on attempt {attempt + 1}/{MAX_RETRIES}")
-                        # Save the response for debugging
-                        
                         continue
                         
                     if response.status_code != 200:
@@ -321,8 +867,6 @@ class AmazonAPI:
                     if 'api-services-support@amazon.com' in response.text or 'Type the characters you see in this image' in response.text:
                         print(f"CAPTCHA detected on attempt {attempt + 1}/{MAX_RETRIES}")
                         continue
-                    
-                    # Save the HTML for debugging
                     
                     # Multiple selectors for product items
                     product_selectors = [
@@ -342,42 +886,21 @@ class AmazonAPI:
                             print(f"Found {len(items)} items with selector: {selector}")
                             break
                     
-                    # If no items found, use a fallback approach
-                    if not items:
-                        print("No items found with standard selectors, using fallback approach")
-                        # Try to find any elements with ASIN-like attributes
-                        asin_elements = soup.select('[data-asin], [data-asin-id], [data-asin-value]')
-                        if asin_elements:
-                            print(f"Found {len(asin_elements)} elements with ASIN attributes")
-                            items = asin_elements
-                    
                     # Process the items
                     for index, item in enumerate(items):
                         if index >= limit:
                             break
                             
                         try:
-                            # Get the ASIN - this is critical for Amazon products
+                            # Get the ASIN
                             asin = None
-                            
-                            # Try multiple ways to extract ASIN
                             if item.has_attr('data-asin'):
                                 asin = item['data-asin']
-                                print(f"Found ASIN from data-asin attribute: {asin}")
-                            
-                            if not asin and item.has_attr('data-asin-id'):
-                                asin = item['data-asin-id']
-                                print(f"Found ASIN from data-asin-id attribute: {asin}")
-                                
-                            if not asin and item.has_attr('data-asin-value'):
-                                asin = item['data-asin-value']
-                                print(f"Found ASIN from data-asin-value attribute: {asin}")
                             
                             if not asin:
                                 asin_elem = item.select_one('[data-asin]')
                                 if asin_elem and asin_elem.has_attr('data-asin'):
                                     asin = asin_elem['data-asin']
-                                    print(f"Found ASIN from nested data-asin element: {asin}")
                             
                             if not asin:
                                 link_elem = item.select_one('a[href*="/dp/"]')
@@ -386,380 +909,101 @@ class AmazonAPI:
                                     asin_match = re.search(r'/dp/([A-Z0-9]{10})', url)
                                     if asin_match:
                                         asin = asin_match.group(1)
-                                        print(f"Found ASIN from URL: {asin}")
                             
-                            # If we still don't have an ASIN, generate a fallback one
+                            # If we still don't have an ASIN, skip this item
                             if not asin:
-                                # Generate a fallback ASIN based on the product title or index
-                                title_elem = item.select_one('.a-text-normal')
-                                title_text = title_elem.text.strip() if title_elem else f"Product {index}"
-                                asin = f"FALLBACK{hashlib.md5(title_text.encode()).hexdigest()[:10]}"
-                                print(f"Generated fallback ASIN: {asin}")
+                                continue
                             
                             # Get the title
                             title = None
                             title_elem = item.select_one('.a-text-normal')
                             if title_elem:
                                 title = title_elem.text.strip()
-                                print(f"Found title: {title}")
                             
                             if not title:
                                 title_elem = item.select_one('h2')
                                 if title_elem:
                                     title = title_elem.text.strip()
-                                    print(f"Found title from h2: {title}")
                             
                             if not title:
-                                title = f"{keywords} (Amazon Product {index+1})"
-                                print(f"Using fallback title: {title}")
+                                title = f"Amazon Product {asin}"
                             
                             # Get the price
-                            price = None
+                            price = 0
                             price_elem = item.select_one('.a-price .a-offscreen')
                             if price_elem:
                                 price_text = price_elem.text.strip()
-                                price = self._extract_price(price_text)
-                                print(f"Found price: {price}")
+                                # Remove currency symbols and commas
+                                price_digits = ''.join(filter(str.isdigit, price_text))
+                                if price_digits:
+                                    price = int(price_digits)
                             
-                            if not price:
-                                price_elem = item.select_one('.a-price')
-                                if price_elem:
-                                    price_text = price_elem.text.strip()
-                                    price = self._extract_price(price_text)
-                                    print(f"Found price from alternate selector: {price}")
-                            
-                            if not price:
-                                price = 1000 + (index * 100)  # Default price
-                                print(f"Using fallback price: {price}")
-                            
-                            # Get the image URL using our improved method
-                            image_url = self._get_product_image(item, keywords, index)
-                            print(f"Using image URL: {image_url}")
+                            # Get the image URL
+                            image_url = None
+                            img_elem = item.select_one('.s-image')
+                            if img_elem and img_elem.has_attr('src'):
+                                image_url = img_elem['src']
                             
                             # Get the product URL
-                            product_url = None
-                            url_elem = item.select_one('a.a-link-normal[href]')
-                            if url_elem and url_elem.has_attr('href'):
-                                product_url = url_elem['href']
-                                print(f"Found product URL: {product_url}")
-                            
-                            if not product_url:
-                                link_elem = item.select_one('a[href*="/dp/"]')
-                                if link_elem and link_elem.has_attr('href'):
-                                    product_url = link_elem['href']
-                                    print(f"Found product URL from dp link: {product_url}")
-                            
-                            # Clean up the URL
-                            if product_url:
-                                if not product_url.startswith('http'):
-                                    product_url = f"https://www.amazon.co.jp{product_url}"
+                            product_url = f"https://www.amazon.co.jp/dp/{asin}?tag={AMAZON_PARTNER_TAG}"
+                            link_elem = item.select_one('a.a-link-normal[href]')
+                            if link_elem and link_elem.has_attr('href'):
+                                href = link_elem['href']
+                                if href.startswith('/'):
+                                    product_url = f"https://www.amazon.co.jp{href}"
+                                elif href.startswith('http'):
+                                    product_url = href
                                 
                                 # Add affiliate tag if not present
-                                if AMAZON_PARTNER_TAG and '&tag=' not in product_url and '?tag=' not in product_url:
+                            if '&tag=' not in product_url and '?tag=' not in product_url:
                                     separator = '&' if '?' in product_url else '?'
                                     product_url = f"{product_url}{separator}tag={AMAZON_PARTNER_TAG}"
-                            else:
-                                # Fallback URL
-                                product_url = f"https://www.amazon.co.jp/dp/{asin}?tag={AMAZON_PARTNER_TAG}"
                             
-                            # Create a product detail object
-                            product = ProductDetail(
-                                title=title,
-                                price=price,
-                                image_url=image_url,
-                                url=product_url,
-                                source="Amazon",
-                                shop="Amazon.co.jp",
-                                asin=asin,
-                                shipping_fee=0,  # Assume free shipping
-                                additional_info={"asin": asin}  # Store ASIN in additional info as well
-                            )
+                            # Create a product data dictionary
+                            product_data = {
+                                "asin": asin,
+                                "title": title,
+                                "price": price,
+                                "url": product_url,
+                                "image_url": image_url,
+                                "source": "amazon",
+                                "availability": True
+                            }
                             
-                            # Add the product to the results
-                            results.append(product)
-                            print(f"Added product to results: {title} with ASIN {asin}")
+                            results.append(product_data)
                         except Exception as e:
-                            print(f"Error extracting product details: {e}")
+                            print(f"Error processing Amazon search result: {e}")
                     
                     # If we found products, return them
                     if results:
-                        print(f"Returning {len(results)} products from scraping")
+                        print(f"Found {len(results)} products via scraping")
                         return results
                     
-                    # If we didn't find any products, try the next attempt
-                    print(f"No products found on attempt {attempt + 1}/{MAX_RETRIES}")
                 except Exception as e:
                     print(f"Error in Amazon scraping (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
             
             # If we get here, all attempts failed
             print("All scraping attempts failed, using fallback results")
-            return self._get_fallback_results(keywords, limit)
+            return self._get_fallback_products(keywords, limit)
         except Exception as e:
             print(f"Error in Amazon scraping: {e}")
-            return self._get_fallback_results(keywords, limit)
-    
-    def _get_fallback_results(self, keywords, limit=5):
-        """
-        Generate fallback results when scraping fails
-        """
-        print(f"Generating {limit} fallback results for '{keywords}'")
-        encoded_keyword = urllib.parse.quote(keywords)
-        results = []
-        
-        # Common reliable ASINs that usually have images
-        reliable_asins = [
-            'B07PXZNF4C',  # Common Amazon product
-            'B08L5TNJHG',  # Another common product
-            'B07ZPKBL9V',  # Another common product
-            'B07ZPKN2LB'   # Another common product
-        ]
-        
-        # Known good image IDs that definitely work
-        reliable_image_ids = [
-            '71iCjKAlaAL',  # Known good image ID
-            '71g2ednj0JL',  # Known good image ID
-            '71Swqqe7XAL',  # Known good image ID
-            '61yI7vWa83L'   # Known good image ID
-        ]
-        
-        for i in range(min(limit, 5)):
-            # Use a reliable ASIN but make it deterministic based on the keyword
-            keyword_hash = hashlib.md5(keywords.encode()).hexdigest()
-            asin_index = int(keyword_hash, 16) % len(reliable_asins)
-            asin = reliable_asins[asin_index]
-            
-            # Use a reliable image ID
-            image_id_index = (int(keyword_hash, 16) + i) % len(reliable_image_ids)
-            image_id = reliable_image_ids[image_id_index]
-            
-            # Create a unique identifier for this fallback
-            fallback_id = f"{i+1}-{int(time.time())}"[:8]
-            
-            # Create a fallback product detail
-            product = ProductDetail(
-                title=f"{keywords} (Amazon Product {i+1})",
-                price=1000 + (i * 100),  # Default price of 1000 yen + variation
-                image_url=f"https://m.media-amazon.com/images/I/{image_id}._AC_SL1200_.jpg",  # Use reliable image ID
-                url=f"https://www.amazon.co.jp/s?k={encoded_keyword}&tag={AMAZON_PARTNER_TAG}",
-                source="Amazon",
-                shop="Amazon.co.jp",
-                asin=asin,  # Use the reliable ASIN
-                shipping_fee=0,  # Free shipping
-                additional_info={
-                    "asin": asin, 
-                    "is_fallback": True,
-                    "fallback_id": fallback_id,
-                    "image_id": image_id
-                }
-            )
-            
-            results.append(product)
-            print(f"Created fallback product {i+1} with ASIN {asin} and image ID {image_id}")
-        
-        return results
+            return self._get_fallback_products(keywords, limit)
     
     def _extract_price(self, price_str):
         """
-        価格文字列から数値を抽出
+        Extract a numeric price from a string
         """
         try:
             if isinstance(price_str, (int, float)):
-                return price_str
+                return int(price_str)
             
-            # 数字だけを抽出
-            import re
-            price_digits = re.sub(r'[^\d]', '', price_str)
+            # Remove currency symbols, commas, and spaces
+            price_digits = ''.join(filter(str.isdigit, str(price_str)))
             if price_digits:
                 return int(price_digits)
-            return 1000  # デフォルト価格
-        except Exception:
-            return 1000  # エラー時のデフォルト価格
-
-    def _get_product_image(self, item, keywords, index=0):
-        """
-        Get product image with multiple fallback options
-        """
-        try:
-            # First, try to extract ASIN
-            asin = None
-            if item.has_attr('data-asin'):
-                asin = item['data-asin']
-            
-            if not asin:
-                asin_elem = item.select_one('[data-asin]')
-                if asin_elem and asin_elem.has_attr('data-asin'):
-                    asin = asin_elem['data-asin']
-            
-            if not asin:
-                link_elem = item.select_one('a[href*="/dp/"]')
-                if link_elem and link_elem.has_attr('href'):
-                    url = link_elem['href']
-                    asin_match = re.search(r'/dp/([A-Z0-9]{10})', url)
-                    if asin_match:
-                        asin = asin_match.group(1)
-            
-            # Try to find the actual image ID from the HTML
-            image_id = None
-            
-            # Multiple selectors for image with different sizes
-            img_selectors = [
-                ('img.s-image', 'src'),
-                ('.s-image', 'src'),
-                ('img[data-image-latency="s-product-image"]', 'src'),
-                ('.a-dynamic-image', 'src'),
-                ('img[data-image-load]', 'src'),
-                ('.a-image-container img', 'src'),
-            ]
-            
-            # Try to extract the image ID from the image URL
-            for selector, attr in img_selectors:
-                img_elem = item.select_one(selector)
-                if img_elem and img_elem.has_attr(attr):
-                    img_url = img_elem[attr]
-                    if img_url:
-                        # Try to extract the image ID using regex patterns
-                        # Pattern for I/XXXXXXXXXX format
-                        id_match = re.search(r'/images/I/([A-Za-z0-9]+)\.', img_url)
-                        if id_match:
-                            image_id = id_match.group(1)
-                            break
-                        
-                        # Pattern for P/XXXXXXXXXX format
-                        id_match = re.search(r'/images/P/([A-Za-z0-9]+)\.', img_url)
-                        if id_match:
-                            image_id = id_match.group(1)
-                            break
-                        
-                        # Pattern for direct image ID
-                        id_match = re.search(r'/([A-Za-z0-9]{10,})\.', img_url)
-                        if id_match:
-                            image_id = id_match.group(1)
-                            break
-            
-            # Handle dynamic image JSON which often contains high-quality images
-            dynamic_img_elem = item.select_one('.a-dynamic-image[data-a-dynamic-image]')
-            if dynamic_img_elem and dynamic_img_elem.has_attr('data-a-dynamic-image'):
-                try:
-                    image_dict = json.loads(dynamic_img_elem['data-a-dynamic-image'])
-                    if image_dict:
-                        # Get the URL with the largest dimensions
-                        largest_url = max(image_dict.keys(), key=lambda x: image_dict[x][0])
-                        id_match = re.search(r'/images/I/([A-Za-z0-9]+)\.', largest_url)
-                        if id_match:
-                            image_id = id_match.group(1)
-                except:
-                    pass
-            
-            # Known good image IDs that definitely work
-            reliable_image_ids = [
-                '71iCjKAlaAL',  # Known good image ID
-                '71g2ednj0JL',  # Known good image ID
-                '71Swqqe7XAL',  # Known good image ID
-                '61yI7vWa83L'   # Known good image ID
-            ]
-            
-            # If we have an image ID, construct a high-quality image URL
-            if image_id:
-                # Use the full image ID format with quality parameters
-                return f"https://m.media-amazon.com/images/I/{image_id}._AC_SL1200_.jpg"
-            
-            # If we have an ASIN but no image ID, try the ASIN-based URL
-            if asin:
-                # Try different Amazon image templates with quality parameters
-                return f"https://m.media-amazon.com/images/I/{asin}._AC_SL1200_.jpg"
-            
-            # If all else fails, use a reliable image ID based on the index
-            reliable_index = index % len(reliable_image_ids)
-            reliable_image_id = reliable_image_ids[reliable_index]
-            return f"https://m.media-amazon.com/images/I/{reliable_image_id}._AC_SL1200_.jpg"
-            
+            return 0
         except Exception as e:
-            print(f"Error getting product image: {e}")
-            # Use a reliable image ID as a last resort
-            reliable_image_ids = [
-                '71iCjKAlaAL',  # Known good image ID
-                '71g2ednj0JL',  # Known good image ID
-                '71Swqqe7XAL',  # Known good image ID
-                '61yI7vWa83L'   # Known good image ID
-            ]
-            reliable_index = index % len(reliable_image_ids)
-            reliable_image_id = reliable_image_ids[reliable_index]
-            return f"https://m.media-amazon.com/images/I/{reliable_image_id}._AC_SL1200_.jpg"
-
-    def _clean_image_url(self, url):
-        """
-        Clean and validate image URL
-        """
-        if not url:
-            return None
-            
-        try:
-            # Remove any whitespace
-            url = url.strip()
-            
-            # Handle relative URLs
-            if url.startswith('//'):
-                url = 'https:' + url
-            elif url.startswith('/'):
-                url = 'https://www.amazon.co.jp' + url
-                
-            # Ensure URL is properly encoded
-            parsed = urllib.parse.urlparse(url)
-            path = urllib.parse.quote(parsed.path)
-            url = urllib.parse.urlunparse(parsed._replace(path=path))
-            
-            # Validate URL format
-            if not url.startswith(('http://', 'https://')):
-                return None
-                
-            # Filter out tracking pixels and tiny images
-            if any(x in url.lower() for x in ['tracking', 'pixel', '1x1', 'blank']):
-                return None
-            
-            # For Amazon images, try to get the highest quality version
-            if any(domain in url for domain in ['amazon.com', 'amazon.co.jp', 'amazon-adsystem.com', 'ssl-images-amazon.com', 'media-amazon.com']):
-                # Extract image ID if present in the URL
-                image_id_match = re.search(r'/images/I/([A-Za-z0-9]+)\.', url)
-                if image_id_match:
-                    image_id = image_id_match.group(1)
-                    # Return a high-quality image URL with the extracted ID
-                    return f"https://m.media-amazon.com/images/I/{image_id}._AC_SL1200_.jpg"
-                
-                # Try P/ format
-                image_id_match = re.search(r'/images/P/([A-Za-z0-9]+)\.', url)
-                if image_id_match:
-                    image_id = image_id_match.group(1)
-                    # Return a high-quality image URL with the extracted ID
-                    return f"https://m.media-amazon.com/images/I/{image_id}._AC_SL1200_.jpg"
-                
-                # Try direct image ID format
-                image_id_match = re.search(r'/([A-Za-z0-9]{10,})\.', url)
-                if image_id_match:
-                    image_id = image_id_match.group(1)
-                    # Return a high-quality image URL with the extracted ID
-                    return f"https://m.media-amazon.com/images/I/{image_id}._AC_SL1200_.jpg"
-                
-                # If the URL already has quality parameters, keep them
-                if '._AC_' in url:
-                    return url
-                
-                # If we can't extract an ID but it's an Amazon image, try to improve quality
-                # Remove size constraints for Amazon images to get higher quality
-                url = re.sub(r'_SL\d+_', '_SL1200_', url)  # Replace size with larger size
-                url = re.sub(r'_AC_\w+_', '_AC_SL1200_', url)  # Replace AC size with larger size
-                
-                # If the URL doesn't have quality parameters, add them
-                if '._AC_' not in url and '.jpg' in url:
-                    url = url.replace('.jpg', '._AC_SL1200_.jpg')
-                
-                # Remove Amazon image URL parameters that reduce quality
-                if '?' in url:
-                    url = url.split('?')[0]
-            
-            return url
-                
-        except Exception as e:
-            print(f"Error cleaning image URL: {e}")
-            return None
+            print(f"Error extracting price from '{price_str}': {e}")
+            return 0
 
 amazon_api = AmazonAPI() 
