@@ -3,9 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Container, Typography, Box, CircularProgress, Chip, Paper, Divider, Alert, Button, TextField, Grid, Tab, Tabs } from '@mui/material';
 import ImageSearchForm from '@/components/ImageSearchForm';
-import ImageSearchResults from '@/components/ImageSearchResults';
+import SearchResults from '@/components/SearchResults';
 import { ImageSearchResult, ModelNumber } from '@/types';
-import { toast } from 'react-toastify';
 import { searchByImage, searchByImageUrl, searchByProductInfo, batchSearchByImages, batchSearchByImageUrls } from '@/api';
 import axios from 'axios';
 
@@ -37,14 +36,18 @@ export default function ImageSearchPage() {
     
     try {
       let result;
+      let genericTerm = null;
       
+      // First, get the image search result to extract the generic term
       if (imageUrl) {
         // Search by URL
         result = await searchByImageUrl(imageUrl);
+        genericTerm = result.generic_term;
       } else if (imageFile) {
         // Search by file upload
         result = await searchByImage(imageFile);
         console.log('Image search result:', JSON.stringify(result, null, 2));
+        genericTerm = result.generic_term;
         
         // Fix the image URL path if it starts with /api/uploads/
         if (result.query_image && result.query_image.startsWith('/api/uploads/')) {
@@ -53,12 +56,35 @@ export default function ImageSearchPage() {
           const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
           result.query_image = `${API_BASE_URL}/uploads/${filename}`;
         }
+      } else if (manualSearchTerm) {
+        // Search by manual text input
+        genericTerm = manualSearchTerm;
+      } else {
+        throw new Error('No image or search term provided');
+      }
+      
+      // If we have a generic term, use it to search with 単一検索
+      if (genericTerm) {
+        console.log(`Using generic term for search: ${genericTerm}`);
         
-        // Process Amazon product image URLs
-        if (result.detailed_products && result.detailed_products.length > 0) {
-          // We no longer need to filter out Amazon fallback results since we're using the API
-          // Just process any image URLs that might need fixing
-          result.detailed_products = result.detailed_products.map(product => {
+        // Use the generic term to search with 単一検索
+        const searchResult = await searchByProductInfo(genericTerm, true);
+        
+        // Create an image search result with the search results
+        const imageSearchResult: ImageSearchResult = {
+          similar_products: result ? result.similar_products || [] : [],
+          price_comparison: searchResult.price_comparison || [],
+          detailed_products: searchResult.detailed_products || [],
+          query_image: result ? result.query_image || '' : '',
+          model_numbers: result ? result.model_numbers || [] : [],
+          generic_term: genericTerm,
+          message: `「${genericTerm}」の検索結果を表示しています。`
+        };
+        
+        // Process Amazon and Yahoo product image URLs
+        if (imageSearchResult.detailed_products && imageSearchResult.detailed_products.length > 0) {
+          // Process all product images to ensure they're using the correct URLs
+          imageSearchResult.detailed_products = imageSearchResult.detailed_products.map(product => {
             // Check if this is an Amazon product
             const isAmazonProduct = (product.source || product.store || '').toLowerCase().includes('amazon');
             
@@ -76,17 +102,32 @@ export default function ImageSearchPage() {
               }
             }
             
+            // Check if this is a Yahoo product
+            const isYahooProduct = (product.source || product.store || '').toLowerCase().includes('yahoo');
+            
+            // If it's a Yahoo product and has a placeholder image, try to fix it
+            if (isYahooProduct && product.image_url) {
+              // Log the original image URL for debugging
+              console.log(`Processing Yahoo product image: ${product.image_url}`);
+              
+              // If the image URL is a placeholder, try to use a better one
+              if (product.image_url.includes('placehold.co') || product.image_url.includes('no_image')) {
+                // Create a search URL for the product title
+                const encodedTitle = encodeURIComponent(product.title || 'product');
+                product.image_url = `https://shopping.c.yimg.jp/lib/y-kojima/${encodedTitle.substring(0, 30)}.jpg`;
+              }
+            }
+            
             return product;
           });
         }
-      } else if (manualSearchTerm) {
-        // Search by manual text input
-        result = await searchByProductInfo(manualSearchTerm, true);
+        
+        setSearchResults([imageSearchResult]);
       } else {
-        throw new Error('No image or search term provided');
+        // If no generic term was found, just use the original result
+        setSearchResults([result as ImageSearchResult]);
       }
       
-      setSearchResults([result as ImageSearchResult]);
       setActiveResult(0);
     } catch (err) {
       console.error('Search error:', err);
@@ -150,18 +191,32 @@ export default function ImageSearchPage() {
   // Function to analyze an image and determine what's in it
   const analyzeImage = async (formData: FormData | { image_url: string }): Promise<{ generic_term: string } | null> => {
     try {
-      // In a real implementation, this would call your backend API
-      // For now, we'll simulate it with a mock response
+      // Call the backend API to analyze the image
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      const endpoint = `${API_BASE_URL}/api/analyze-image`;
       
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500));
+      let response;
+      if ('image_url' in formData) {
+        // If it's an image URL
+        response = await axios.post(endpoint, {
+          image_url: formData.image_url
+        }, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
+      } else {
+        // If it's a file upload
+        response = await axios.post(endpoint, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
+      }
       
-      // Return a mock response for the rope image
-      return { generic_term: "ロープ" };
-      
-      // In a real implementation, you would call your backend:
-      // const response = await axios.post('/api/analyze-image', formData);
-      // return response.data;
+      console.log('Image analysis response:', response.data);
+      return response.data;
     } catch (error) {
       console.error('Error analyzing image:', error);
       return null;
@@ -288,7 +343,11 @@ export default function ImageSearchPage() {
           
           {searchResults.map((result, index) => (
             <Box key={index} sx={{ display: activeResult === index ? 'block' : 'none' }}>
-              <ImageSearchResults result={result} />
+              {/* <ImageSearchResults result={result} /> */}
+              <SearchResults results={{
+                ...result,
+                keywords: result.generic_term ? [result.generic_term] : []
+              }} />
             </Box>
           ))}
         </>

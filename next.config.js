@@ -36,7 +36,13 @@ const nextConfig = {
       'r.r10s.jp',
       'www.rakuten.co.jp',
       'rakuten.co.jp',
-      'image.rakuten.co.jp'
+      'image.rakuten.co.jp',
+      // Additional Rakuten domains
+      'rms.rakuten.co.jp',
+      'item.rakuten.co.jp',
+      'hbb.afl.rakuten.co.jp',
+      'image.rakuten.co.jp',
+      'static.affiliate.rakuten.co.jp'
     ],
     remotePatterns: [
       {
@@ -79,6 +85,16 @@ const nextConfig = {
         protocol: 'https',
         hostname: '**.r10s.jp',
         pathname: '**',
+      },
+      {
+        protocol: 'http',
+        hostname: '**.rakuten.co.jp',
+        pathname: '**',
+      },
+      {
+        protocol: 'http',
+        hostname: '**.r10s.jp',
+        pathname: '**',
       }
     ],
     // Allow unoptimized images from external domains
@@ -97,9 +113,9 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: `
               default-src 'self';
-              img-src 'self' data: https://*.amazon.com https://*.amazon.co.jp https://*.ssl-images-amazon.com 
+              img-src 'self' data: blob: https://*.amazon.com https://*.amazon.co.jp https://*.ssl-images-amazon.com 
                 https://*.media-amazon.com https://*.amazon-adsystem.com https://placehold.co
-                https://*.rakuten.co.jp https://*.r10s.jp;
+                https://*.rakuten.co.jp https://*.r10s.jp http://*.rakuten.co.jp http://*.r10s.jp;
               font-src 'self' data:;
               style-src 'self' 'unsafe-inline';
               script-src 'self' 'unsafe-eval' 'unsafe-inline';
@@ -110,6 +126,18 @@ const nextConfig = {
             key: 'Access-Control-Allow-Origin',
             value: '*',
           },
+          {
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, OPTIONS',
+          },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value: 'X-Requested-With, Content-Type, Accept',
+          },
+          {
+            key: 'Referrer-Policy',
+            value: 'no-referrer',
+          }
         ],
       },
     ];

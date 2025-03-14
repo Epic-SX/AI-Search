@@ -1,7 +1,6 @@
 'use client';
 
-import { useState } from 'react';
-import { Box } from '@mui/material';
+import React, { useState, useEffect } from 'react';
 import { FaAmazon } from 'react-icons/fa';
 
 // Define a reliable fallback image URL
@@ -32,41 +31,69 @@ const processAmazonImageUrl = (url: string): string => {
 
 export default function SimpleAmazonImage({ imageUrl, title, height = 150, width }: SimpleAmazonImageProps) {
   const [imageError, setImageError] = useState(false);
+  const [loading, setLoading] = useState(true);
   
-  // Process the image URL
-  const processedUrl = processAmazonImageUrl(imageUrl);
+  // Process the image URL when the component mounts or imageUrl changes
+  useEffect(() => {
+    console.log(`SimpleAmazonImage received URL: ${imageUrl}`);
+    setImageError(false);
+    setLoading(true);
+  }, [imageUrl]);
+  
+  // Handle image loading error
+  const handleImageError = () => {
+    console.error(`Failed to load Amazon image: ${imageUrl}`);
+    setImageError(true);
+    setLoading(false);
+  };
+  
+  const handleImageLoad = () => {
+    console.log(`Successfully loaded Amazon image: ${imageUrl}`);
+    setLoading(false);
+  };
   
   // If there's an error loading the image, show a fallback
   if (imageError) {
     return (
-      <Box 
-        sx={{ 
-          width: width || '100%', 
-          height: height, 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          bgcolor: '#f5f5f5',
-          mb: 1
-        }}
-      >
+      <div style={{ 
+        width: width || '100%', 
+        height: height, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        backgroundColor: '#f5f5f5',
+        marginBottom: '8px'
+      }}>
         <FaAmazon size={48} color="#FF9900" />
-      </Box>
+      </div>
     );
   }
   
   return (
-    <Box 
-      component="img" 
-      src={processedUrl} 
-      alt={title || 'Amazon Product'}
-      sx={{ 
-        maxWidth: width || '100%', 
-        maxHeight: height, 
-        objectFit: 'contain',
-        mb: 1
-      }}
-      onError={() => setImageError(true)}
-    />
+    <div style={{ 
+      width: width || '100%', 
+      height: height, 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      marginBottom: '8px'
+    }}>
+      {loading && (
+        <div style={{ position: 'absolute' }}>
+          <FaAmazon size={24} color="#FF9900" />
+        </div>
+      )}
+      <img 
+        src={processAmazonImageUrl(imageUrl)}
+        alt={title || 'Amazon Product'}
+        style={{ 
+          maxWidth: '100%', 
+          maxHeight: '100%', 
+          objectFit: 'contain'
+        }}
+        onError={handleImageError}
+        onLoad={handleImageLoad}
+      />
+    </div>
   );
 } 

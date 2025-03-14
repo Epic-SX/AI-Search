@@ -124,6 +124,17 @@ class PriceComparisonEngine:
         print(f"DEBUG: Direct search for detailed products: '{product_info}'")
         all_products = []
         
+        # Check if the keyword is a common product category
+        common_categories = ["tv", "テレビ", "television", "pc", "パソコン", "computer", 
+                            "laptop", "ノートパソコン", "camera", "カメラ", "smartphone", 
+                            "スマートフォン", "スマホ", "phone", "携帯電話"]
+        
+        is_common_category = False
+        for category in common_categories:
+            if product_info.lower() == category or product_info.lower().startswith(category + " "):
+                is_common_category = True
+                break
+        
         # 各APIから詳細情報を取得
         for api_name, api in self.apis.items():
             try:
@@ -135,10 +146,11 @@ class PriceComparisonEngine:
                     if api_name == 'Amazon':
                         all_products.extend(products)
                     else:
-                        # For other APIs, filter products to only include those with the exact keyword in the title
+                        # For other APIs, filter products based on whether it's a common category
                         filtered_products = []
                         for product in products:
-                            if product_info.lower() in product.title.lower():
+                            # For common categories, don't require exact title match
+                            if is_common_category or product_info.lower() in product.title.lower():
                                 filtered_products.append(product)
                         
                         all_products.extend(filtered_products)
@@ -232,10 +244,22 @@ class PriceComparisonEngine:
             if hasattr(api, 'get_multiple_prices'):
                 results = api.get_multiple_prices(product_info)
                 
-                # Filter results to only include those with the exact keyword in the title
+                # Check if the keyword is a common product category
+                common_categories = ["tv", "テレビ", "television", "pc", "パソコン", "computer", 
+                                    "laptop", "ノートパソコン", "camera", "カメラ", "smartphone", 
+                                    "スマートフォン", "スマホ", "phone", "携帯電話"]
+                
+                is_common_category = False
+                for category in common_categories:
+                    if product_info.lower() == category or product_info.lower().startswith(category + " "):
+                        is_common_category = True
+                        break
+                
+                # Filter results based on whether it's a common category or specific model
                 filtered_results = []
                 for result in results:
-                    if product_info.lower() in result.get('title', '').lower():
+                    # For common categories, don't require exact title match
+                    if is_common_category or product_info.lower() in result.get('title', '').lower():
                         # Ensure the result has a 'store' property
                         if 'store' not in result and 'shop' in result:
                             result['store'] = result['shop']

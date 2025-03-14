@@ -12,12 +12,12 @@ axios.defaults.headers.post['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = false;
 
 // 商品情報による検索
-export const searchByProductInfo = async (productInfo: string, directSearch: boolean = false): Promise<SearchResult> => {
+export const searchByProductInfo = async (productInfo: string, directSearch: boolean = true): Promise<SearchResult> => {
   try {
-    console.log(`DEBUG API: Calling searchByProductInfo with productInfo="${productInfo}", directSearch=${directSearch}`);
+    console.log(`DEBUG API: Calling searchByProductInfo with productInfo="${productInfo}", directSearch=true`);
     const response = await axios.post(`${API_BASE_URL}/api/search/product`, {
       product_info: productInfo,
-      direct_search: directSearch
+      direct_search: true // Always use direct search
     });
     console.log('DEBUG API: Search response received:', response.data);
     return response.data;
@@ -28,11 +28,11 @@ export const searchByProductInfo = async (productInfo: string, directSearch: boo
 };
 
 // 複数の商品情報による一括検索
-export const batchSearchByProductInfo = async (productInfoList: string[], directSearch: boolean = false): Promise<SearchResult[]> => {
+export const batchSearchByProductInfo = async (productInfoList: string[], directSearch: boolean = true): Promise<SearchResult[]> => {
   try {
     const response = await axios.post(`${API_BASE_URL}/api/search/detailed-batch`, {
       product_info_list: productInfoList,
-      direct_search: directSearch
+      direct_search: true // Always use direct search
     });
     return response.data;
   } catch (error) {
@@ -44,36 +44,64 @@ export const batchSearchByProductInfo = async (productInfoList: string[], direct
 // 画像URLによる検索
 export const searchByImageUrl = async (imageUrl: string): Promise<ImageSearchResult> => {
   try {
-    // First try with the /api prefix
+    // Use only the /api/search/image endpoint
     const endpoint = `${API_BASE_URL}/api/search/image`;
     console.log(`Sending image URL search request to ${endpoint}`);
     
-    try {
-      const response = await axios.post(endpoint, {
-        image_url: imageUrl
+    // Add a timeout to prevent hanging requests
+    const response = await axios.post(endpoint, {
+      image_url: imageUrl
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      timeout: 30000 // 30 second timeout
+    });
+    
+    console.log('Image URL search response:', response.data);
+    
+    // Process the response to ensure all products have valid image URLs
+    if (response.data.detailed_products && response.data.detailed_products.length > 0) {
+      response.data.detailed_products = response.data.detailed_products.map((product: any) => {
+        // Fix Amazon image URLs
+        if (product.source?.toLowerCase().includes('amazon') && product.image_url) {
+          if (product.image_url.includes('placehold.co') || !product.image_url.startsWith('http')) {
+            if (product.asin) {
+              product.image_url = `https://m.media-amazon.com/images/I/${product.asin}._AC_SL1200_.jpg`;
+            }
+          }
+        }
+        
+        // Fix Yahoo image URLs
+        if (product.source?.toLowerCase().includes('yahoo') && product.image_url) {
+          if (product.image_url.includes('placehold.co') || product.image_url.includes('no_image')) {
+            const encodedTitle = encodeURIComponent(product.title || 'product');
+            product.image_url = `https://shopping.c.yimg.jp/lib/y-kojima/${encodedTitle.substring(0, 30)}.jpg`;
+          }
+        }
+        
+        return product;
       });
-      console.log('Image URL search response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error(`Error with /api prefix: ${error}`);
-      
-      // If that fails, try without the /api prefix
-      const fallbackEndpoint = `${API_BASE_URL}/search/image`;
-      console.log(`Trying fallback endpoint: ${fallbackEndpoint}`);
-      
-      const fallbackResponse = await axios.post(fallbackEndpoint, {
-        image_url: imageUrl
-      });
-      console.log('Fallback response:', fallbackResponse.data);
-      return fallbackResponse.data;
     }
+    
+    return response.data;
   } catch (error) {
     console.error('Error searching by image URL:', error);
     if (axios.isAxiosError(error)) {
       console.error('Response data:', error.response?.data);
       console.error('Status:', error.response?.status);
     }
-    throw error;
+    
+    // Return a default error response
+    return {
+      similar_products: [],
+      price_comparison: [],
+      detailed_products: [],
+      query_image: imageUrl,
+      model_numbers: [],
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
   }
 };
 
@@ -148,67 +176,72 @@ export const batchSearchByImages = async (imageFiles: File[]): Promise<ImageSear
 // 複数画像URLによる一括検索
 export const batchSearchByImageUrls = async (imageUrls: string[]): Promise<ImageSearchResult[]> => {
   try {
-    // Process each image URL individually and collect results
-    const promises = imageUrls.map(url => searchByImageUrl(url).catch(error => {
-      console.error(`Error searching with image URL ${url}:`, error);
-      // Return an empty result with error information
-      return {
-        similar_products: [],
-        price_comparison: [],
-        detailed_products: [],
-        query_image: url,
-        model_numbers: [],
-        error: error instanceof Error ? error.message : 'Unknown error'
-      } as ImageSearchResult;
-    }));
+    console.log(`Starting batch search with ${imageUrls.length} image URLs`);
     
-    return await Promise.all(promises);
+    // Process each image URL individually and collect results
+    const promises = imageUrls.map(url => 
+      searchByImageUrl(url)
+        .catch(error => {
+          console.error(`Error searching with image URL ${url}:`, error);
+          // Return an empty result with error information
+          return {
+            similar_products: [],
+            price_comparison: [],
+            detailed_products: [],
+            query_image: url,
+            model_numbers: [],
+            error: error instanceof Error ? error.message : 'Unknown error'
+          } as ImageSearchResult;
+        })
+    );
+    
+    const results = await Promise.all(promises);
+    console.log(`Completed batch search for ${imageUrls.length} URLs`);
+    return results;
   } catch (error) {
     console.error('Error in batch image URL search:', error);
-    throw error;
+    // Return empty results for all URLs
+    return imageUrls.map(url => ({
+      similar_products: [],
+      price_comparison: [],
+      detailed_products: [],
+      query_image: url,
+      model_numbers: [],
+      error: 'Batch search failed'
+    }));
   }
 };
 
-// 画像分析
+// 画像の内容を分析
 export const analyzeImage = async (formData: FormData | { image_url: string }): Promise<{ generic_term: string } | null> => {
   try {
-    // First try with the /api prefix
     const endpoint = `${API_BASE_URL}/api/analyze-image`;
     console.log(`Sending image analysis request to ${endpoint}`);
     
-    try {
-      let response;
-      if (formData instanceof FormData) {
-        response = await axios.post(endpoint, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-      } else {
-        response = await axios.post(endpoint, formData);
-      }
-      console.log('Image analysis response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error(`Error with /api prefix: ${error}`);
-      
-      // If that fails, try without the /api prefix
-      const fallbackEndpoint = `${API_BASE_URL}/analyze-image`;
-      console.log(`Trying fallback endpoint: ${fallbackEndpoint}`);
-      
-      let fallbackResponse;
-      if (formData instanceof FormData) {
-        fallbackResponse = await axios.post(fallbackEndpoint, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-      } else {
-        fallbackResponse = await axios.post(fallbackEndpoint, formData);
-      }
-      console.log('Fallback response:', fallbackResponse.data);
-      return fallbackResponse.data;
+    let response;
+    if ('image_url' in formData) {
+      // If it's an image URL
+      response = await axios.post(endpoint, {
+        image_url: formData.image_url
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        timeout: 30000 // 30 second timeout
+      });
+    } else {
+      // If it's a file upload
+      response = await axios.post(endpoint, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 30000 // 30 second timeout
+      });
     }
+    
+    console.log('Image analysis response:', response.data);
+    return response.data;
   } catch (error) {
     console.error('Error analyzing image:', error);
     if (axios.isAxiosError(error)) {

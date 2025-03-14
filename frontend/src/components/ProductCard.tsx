@@ -308,7 +308,9 @@ export default function ProductCard({ product }: ProductCardProps) {
           {product.title}
         </Typography>
         <Typography variant="h5" color="primary" gutterBottom>
-          ¥{product.price ? product.price.toLocaleString() : '0'}
+          {product.price && product.price > 0 
+            ? `¥${product.price.toLocaleString()}`
+            : '価格情報なし'}
         </Typography>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body2" color="text.secondary">

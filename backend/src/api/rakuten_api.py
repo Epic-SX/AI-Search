@@ -34,7 +34,13 @@ class RakutenAPI:
     
     def _extract_image_url(self, item):
         """
-        Extract image URL from Rakuten API response item with improved handling
+        Extract and process image URL from Rakuten API response item
+        
+        Args:
+            item (dict): Item data from Rakuten API
+            
+        Returns:
+            str: Processed image URL
         """
         try:
             # If item is a ProductDetail object
@@ -44,118 +50,181 @@ class RakutenAPI:
                 if image_url.startswith('http:'):
                     image_url = image_url.replace('http:', 'https:')
                 
-                # Check if this is a valid image URL
-                if 'now_printing.jpg' in image_url or 'placehold.co' in image_url:
-                    # We'll handle this later with fallbacks
-                    pass
-                else:
-                    # Add size parameter if needed for Rakuten thumbnail images
-                    if 'thumbnail.image.rakuten.co.jp' in image_url and not '_ex=' in image_url and not '?_ex=' in image_url:
-                        image_url = f"{image_url}{'&' if '?' in image_url else '?'}_ex=300x300"
-                    
-                    print(f"DEBUG: Using ProductDetail image URL: {image_url}")
-                    return image_url
+                return image_url
             
             # If item is a dictionary from the API
             if isinstance(item, dict):
-                # First try to get the highest quality image available
+                # Debug the image-related fields in the response
+                print(f"DEBUG: Image fields in _extract_image_url: mediumImageUrls={item.get('mediumImageUrls') is not None}, smallImageUrls={item.get('smallImageUrls') is not None}, imageUrl={item.get('imageUrl') is not None}")
                 
-                # Check for largeImageUrls (highest quality)
-                if 'largeImageUrls' in item and item['largeImageUrls']:
-                    if isinstance(item['largeImageUrls'], list) and len(item['largeImageUrls']) > 0:
-                        first_image = item['largeImageUrls'][0]
-                        if isinstance(first_image, dict) and 'imageUrl' in first_image:
-                            image_url = first_image['imageUrl']
-                            # Ensure the URL uses HTTPS
-                            if image_url.startswith('http:'):
-                                image_url = image_url.replace('http:', 'https:')
-                            
-                            if not 'now_printing.jpg' in image_url and not 'placehold.co' in image_url:
-                                # Add size parameter if needed for Rakuten thumbnail images
-                                if 'thumbnail.image.rakuten.co.jp' in image_url and not '_ex=' in image_url and not '?_ex=' in image_url:
-                                    image_url = f"{image_url}{'&' if '?' in image_url else '?'}_ex=600x600"
-                                
-                                print(f"DEBUG: Extracted Rakuten image URL from largeImageUrls: {image_url}")
-                                return image_url
-                
-                # Check for mediumImageUrls (medium quality)
+                # First try to get medium image URL (better quality)
                 if 'mediumImageUrls' in item and item['mediumImageUrls']:
                     if isinstance(item['mediumImageUrls'], list) and len(item['mediumImageUrls']) > 0:
                         first_image = item['mediumImageUrls'][0]
                         if isinstance(first_image, dict) and 'imageUrl' in first_image:
-                            image_url = first_image['imageUrl']
-                            # Ensure the URL uses HTTPS
-                            if image_url.startswith('http:'):
-                                image_url = image_url.replace('http:', 'https:')
-                            
-                            if not 'now_printing.jpg' in image_url and not 'placehold.co' in image_url:
-                                # Add size parameter if needed for Rakuten thumbnail images
-                                if 'thumbnail.image.rakuten.co.jp' in image_url and not '_ex=' in image_url and not '?_ex=' in image_url:
-                                    image_url = f"{image_url}{'&' if '?' in image_url else '?'}_ex=300x300"
-                                
-                                print(f"DEBUG: Extracted Rakuten image URL from mediumImageUrls: {image_url}")
-                                return image_url
+                            image_url = self._process_rakuten_image_url(first_image['imageUrl'])
+                            print(f"DEBUG: Found medium image URL: {image_url}")
+                            return image_url
                 
-                # Check for smallImageUrls (lowest quality)
+                # If medium image not available, try small image URL
                 if 'smallImageUrls' in item and item['smallImageUrls']:
                     if isinstance(item['smallImageUrls'], list) and len(item['smallImageUrls']) > 0:
                         first_image = item['smallImageUrls'][0]
                         if isinstance(first_image, dict) and 'imageUrl' in first_image:
-                            image_url = first_image['imageUrl']
-                            # Ensure the URL uses HTTPS
-                            if image_url.startswith('http:'):
-                                image_url = image_url.replace('http:', 'https:')
-                            
-                            if not 'now_printing.jpg' in image_url and not 'placehold.co' in image_url:
-                                # Add size parameter if needed for Rakuten thumbnail images
-                                if 'thumbnail.image.rakuten.co.jp' in image_url and not '_ex=' in image_url and not '?_ex=' in image_url:
-                                    image_url = f"{image_url}{'&' if '?' in image_url else '?'}_ex=200x200"
-                                
-                                print(f"DEBUG: Extracted Rakuten image URL from smallImageUrls: {image_url}")
+                            image_url = self._process_rakuten_image_url(first_image['imageUrl'])
+                            print(f"DEBUG: Found small image URL: {image_url}")
+                            return image_url
+                
+                # Try direct imageUrl field
+                if 'imageUrl' in item and item['imageUrl']:
+                    image_url = self._process_rakuten_image_url(item['imageUrl'])
+                    print(f"DEBUG: Found direct image URL: {image_url}")
+                    return image_url
+                
+                # Check for Item.mediumImageUrls (for IchibaItem API)
+                if 'Item' in item and isinstance(item['Item'], dict):
+                    item_data = item['Item']
+                    if 'mediumImageUrls' in item_data and item_data['mediumImageUrls']:
+                        if isinstance(item_data['mediumImageUrls'], list) and len(item_data['mediumImageUrls']) > 0:
+                            first_image = item_data['mediumImageUrls'][0]
+                            if isinstance(first_image, dict) and 'imageUrl' in first_image:
+                                image_url = self._process_rakuten_image_url(first_image['imageUrl'])
+                                print(f"DEBUG: Found image URL in Item object: {image_url}")
                                 return image_url
                 
                 # Check for other image fields
                 for field in ['imageUrl', 'image', 'productImageUrl', 'mainImageUrl']:
                     if field in item and item[field]:
-                        image_url = item[field]
-                        # Ensure the URL uses HTTPS
-                        if image_url.startswith('http:'):
-                            image_url = image_url.replace('http:', 'https:')
-                        
-                        if not 'now_printing.jpg' in image_url and not 'placehold.co' in image_url:
-                            print(f"DEBUG: Extracted Rakuten image URL from {field}: {image_url}")
-                            return image_url
+                        image_url = self._process_rakuten_image_url(item[field])
+                        print(f"DEBUG: Found image URL in field {field}: {image_url}")
+                        return image_url
                 
-                # If we have a URL but no valid image, try to scrape the product page
-                if 'itemUrl' in item and item['itemUrl']:
-                    scraped_image = self._scrape_rakuten_product_image(item['itemUrl'])
-                    if scraped_image:
-                        print(f"DEBUG: Scraped image from product page: {scraped_image}")
-                        return scraped_image
+                # Try to extract from the HTML description
+                if 'itemCaption' in item and item['itemCaption']:
+                    try:
+                        caption = item.get('itemCaption', '')
+                        soup = BeautifulSoup(caption, 'html.parser')
+                        img_tags = soup.find_all('img')
+                        
+                        if img_tags:
+                            for img in img_tags:
+                                if 'src' in img.attrs:
+                                    img_src = img['src']
+                                    if img_src and not img_src.startswith('data:'):
+                                        image_url = self._process_rakuten_image_url(img_src)
+                                        print(f"DEBUG: Found image URL in caption: {image_url}")
+                                        return image_url
+                    except Exception as e:
+                        print(f"Error extracting image from itemCaption: {e}")
+                
+                # Try to extract from the raw response
+                try:
+                    # Convert the item to string and search for image URLs
+                    item_str = json.dumps(item, ensure_ascii=False)
+                    # Look for common image URL patterns
+                    image_patterns = [
+                        r'https?://[^"\']+\.jpg',
+                        r'https?://[^"\']+\.jpeg',
+                        r'https?://[^"\']+\.png',
+                        r'https?://[^"\']+\.gif',
+                        r'https?://thumbnail\.image\.rakuten\.co\.jp[^"\']+',
+                        r'https?://shop\.r10s\.jp[^"\']+',
+                        r'https?://image\.rakuten\.co\.jp[^"\']+',
+                    ]
+                    
+                    for pattern in image_patterns:
+                        matches = re.findall(pattern, item_str)
+                        if matches:
+                            # Use the first match
+                            image_url = self._process_rakuten_image_url(matches[0])
+                            print(f"DEBUG: Found image URL using regex: {image_url}")
+                            return image_url
+                except Exception as e:
+                    print(f"Error extracting image URL using regex: {e}")
             
-            # If no image URL found, use a real Rakuten image instead of a placeholder
+            # Use a default Rakuten product image
             sample_images = [
-                "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-                "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-                "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-                "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
+                "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten24/cabinet/goods/4903301181392_01.jpg",
+                "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/0867/9784088820867.jpg",
+                "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten24/cabinet/e01/4903301176718.jpg",
+                "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten/cabinet/ichiba/app/pc/img/common/logo_rakuten_320x320.png"
             ]
             
             # Use a hash of the item name to consistently select the same image for the same product
             if isinstance(item, dict) and 'itemName' in item:
                 item_hash = hashlib.md5(item['itemName'].encode()).hexdigest()
                 index = int(item_hash[:8], 16) % len(sample_images)
-                fallback_image = sample_images[index]
-                print(f"DEBUG: Using sample image as fallback: {fallback_image}")
-                return fallback_image
+                image_url = sample_images[index]
+                print(f"DEBUG: Using sample image based on product name: {image_url}")
+                return image_url
             
-            # Return a default Rakuten image instead of a placeholder
-            print(f"DEBUG: Using default sample image")
-            return sample_images[0]  # Use first sample image instead of "now_printing.jpg"
+            # Default Rakuten logo as fallback
+            default_image = "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten/cabinet/ichiba/app/pc/img/common/logo_rakuten_320x320.png"
+            print(f"DEBUG: Using default Rakuten logo: {default_image}")
+            return default_image
         
         except Exception as e:
             print(f"Error extracting image URL: {e}")
-            return "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"  # Use a real product image as fallback
+            return "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten/cabinet/ichiba/app/pc/img/common/logo_rakuten_320x320.png"
+    
+    def _process_rakuten_image_url(self, url):
+        """
+        Process Rakuten image URL to ensure it's properly formatted
+        
+        Args:
+            url (str): Raw image URL from Rakuten API
+            
+        Returns:
+            str: Processed image URL
+        """
+        if not url:
+            return "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten/cabinet/ichiba/app/pc/img/common/logo_rakuten_320x320.png"
+        
+        # Print the raw URL for debugging
+        print(f"DEBUG: Processing raw image URL: {url}")
+        
+        # Clean up the URL - remove any escaped characters
+        url = url.replace('\\/', '/').replace('\\\\', '\\')
+        
+        # Convert HTTP to HTTPS
+        if url.startswith('http:'):
+            url = url.replace('http:', 'https:')
+        
+        # Handle shop.r10s.jp domain (direct shop images)
+        if 'shop.r10s.jp' in url:
+            # These URLs don't need size parameters as they're direct image links
+            return url
+        
+        # Handle Rakuten thumbnail image URLs
+        if 'thumbnail.image.rakuten.co.jp' in url:
+            # Remove any existing size parameters
+            if '_ex=' in url:
+                # Replace existing size with 300x300
+                url = re.sub(r'_ex=\d+x\d+', '_ex=300x300', url)
+            else:
+                # Add size parameter for better quality
+                url = f"{url}{'&' if '?' in url else '?'}_ex=300x300"
+        
+        # Handle image.rakuten.co.jp URLs
+        if 'image.rakuten.co.jp' in url and not '_ex=' in url:
+            # Add size parameter for better quality
+            url = f"{url}{'&' if '?' in url else '?'}_ex=300x300"
+        
+        # Fix small size parameters if present
+        if '_ex=128x128' in url or '_ex=64x64' in url:
+            url = url.replace('_ex=128x128', '_ex=300x300').replace('_ex=64x64', '_ex=300x300')
+        
+        # Handle URLs with "now_printing.jpg" (placeholder images)
+        if 'now_printing.jpg' in url:
+            # Replace with a default Rakuten product image
+            return "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten24/cabinet/goods/4903301181392_01.jpg"
+        
+        # Handle relative URLs (should be rare, but just in case)
+        if url.startswith('/'):
+            url = f"https://www.rakuten.co.jp{url}"
+        
+        print(f"DEBUG: Processed image URL: {url}")
+        return url
     
     def get_product_details(self, product_info):
         """
@@ -178,70 +247,6 @@ class RakutenAPI:
                     # Get image URL using the improved extraction method
                     image_url = self._extract_image_url(item)
                     
-                    # If no image URL is found or it's a default image, try to scrape the product page
-                    if not image_url or 'now_printing.jpg' in image_url:
-                        if 'itemUrl' in item and item['itemUrl']:
-                            scraped_image = self._scrape_rakuten_product_image(item['itemUrl'])
-                            if scraped_image:
-                                print(f"DEBUG: Replaced default image with scraped image: {scraped_image}")
-                                image_url = scraped_image
-                    
-                    # If still no valid image, use a sample image
-                    if not image_url or 'now_printing.jpg' in image_url:
-                        sample_images = [
-                            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-                            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-                            "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-                            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
-                        ]
-                        item_hash = hashlib.md5(item.get('itemName', product_info).encode()).hexdigest()
-                        index = int(item_hash[:8], 16) % len(sample_images)
-                        image_url = sample_images[index]
-                        print(f"DEBUG: Using sample image for product: {image_url}")
-                    
-                    # Print the image URL for debugging
-                    print(f"DEBUG: Final Rakuten product image URL: {image_url}")
-                    
-                    # Check if the image URL is a placeholder
-                    if 'placehold.co' in image_url:
-                        print(f"WARNING: Still using placeholder image: {image_url}")
-                        # Replace with a real product image
-                        sample_images = [
-                            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-                            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-                            "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-                            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
-                        ]
-                        item_hash = hashlib.md5(item.get('itemName', product_info).encode()).hexdigest()
-                        index = int(item_hash[:8], 16) % len(sample_images)
-                        image_url = sample_images[index]
-                        print(f"DEBUG: Replaced placeholder with sample image: {image_url}")
-                    
-                    # Validate the image URL by checking if it's accessible
-                    try:
-                        if image_url and not image_url.startswith('data:'):
-                            # Make a HEAD request to check if the image exists
-                            headers = {
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                            }
-                            response = requests.head(image_url, headers=headers, timeout=5)
-                            
-                            # If the image doesn't exist, use a sample image
-                            if response.status_code != 200:
-                                print(f"WARNING: Image URL returned status code {response.status_code}: {image_url}")
-                                sample_images = [
-                                    "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-                                    "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-                                    "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-                                    "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
-                                ]
-                                item_hash = hashlib.md5(item.get('itemName', product_info).encode()).hexdigest()
-                                index = int(item_hash[:8], 16) % len(sample_images)
-                                image_url = sample_images[index]
-                                print(f"DEBUG: Using sample image due to invalid URL: {image_url}")
-                    except Exception as e:
-                        print(f"Error validating image URL: {e}")
-                    
                     # Get price and ensure it's an integer
                     price = 0
                     if 'itemPrice' in item:
@@ -261,6 +266,12 @@ class RakutenAPI:
                             print(f"Error parsing price: {e}")
                             price = 0
                     
+                    # Calculate ranking based on review count and average
+                    review_count = int(item.get('reviewCount', 0))
+                    review_average = float(item.get('reviewAverage', 0))
+                    # Calculate a ranking score (higher is better)
+                    ranking = review_count * review_average
+                    
                     # Create a ProductDetail object
                     product = ProductDetail(
                         source="rakuten",
@@ -270,13 +281,16 @@ class RakutenAPI:
                         image_url=image_url,
                         shop=item.get('shopName', '楽天市場'),
                         availability=True,
-                        rating=item.get('reviewAverage', 0),
-                        review_count=item.get('reviewCount', 0),
+                        rating=review_average,
+                        review_count=review_count,
                         shipping_fee=0,  # Assume free shipping
+                        ranking=ranking,  # Add ranking field
                         additional_info={
                             "pointRate": item.get('pointRate', 0),
                             "shopCode": item.get('shopCode', ''),
                             "genreId": item.get('genreId', ''),
+                            "reviewCount": review_count,
+                            "reviewAverage": review_average,
                             "is_api_result": True
                         }
                     )
@@ -368,13 +382,18 @@ class RakutenAPI:
                     if not shop_name:
                         shop_name = "楽天市場"
                     
+                    # Process the image URL to ensure it's properly formatted
+                    image_url = product_dict.get('image_url', '')
+                    if image_url:
+                        image_url = self._process_rakuten_image_url(image_url)
+                    
                     price_info = {
                         'store': shop_name,
                         'price': price,
                         'url': product_dict.get('url', ''),
                         'shipping_fee': product_dict.get('shipping_fee', None),
                         'title': product_dict.get('title', ''),
-                        'image_url': product_dict.get('image_url', '')
+                        'image_url': image_url
                     }
                     results.append(price_info)
                 
@@ -384,301 +403,67 @@ class RakutenAPI:
             print(f"Error in Rakuten API call: {e}")
             return self._get_fallback_prices(product_info)
     
-    def _search_rakuten_products(self, keyword, max_results=5):
-        """Search for products on Rakuten."""
-        url = "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20170706"
-        
-        # Limit hits to 30 as per Rakuten API requirements
-        api_hits = min(30, max_results)
-        
-        # Print API credentials for debugging
-        print(f"DEBUG: Rakuten API credentials - App ID: {self.app_id[:4]}..., Affiliate ID: {self.affiliate_id[:4]}...")
-        
-        # Try different search strategies with the API
-        search_strategies = [
-            # Strategy 1: Exact match with model number
-            {
+    def _search_rakuten_products(self, keyword, max_results=30):
+        """
+        楽天APIを使用して商品を検索
+        """
+        try:
+            print(f"DEBUG: Searching Rakuten products for: {keyword}")
+            
+            # Prepare API parameters
+            params = {
                 "applicationId": self.app_id,
                 "affiliateId": self.affiliate_id,
+                "format": "json",
                 "keyword": keyword,
-                "hits": api_hits,
-                "page": 1,
-                "sort": "+itemPrice",
-                "imageFlag": 1,
-                "availability": 1,
-                "carrier": 0,
-                "formatVersion": 2
-            },
-            # Strategy 2: Search with quotes for exact match
-            {
-                "applicationId": self.app_id,
-                "affiliateId": self.affiliate_id,
-                "keyword": f'"{keyword}"',
-                "hits": api_hits,
-                "imageFlag": 1,
-                "formatVersion": 2
-            },
-            # Strategy 3: Simple search with minimal parameters
-            {
-                "applicationId": self.app_id,
-                "affiliateId": self.affiliate_id,
-                "keyword": keyword,
-                "hits": api_hits,
-                "imageFlag": 1,
-                "formatVersion": 2
-            },
-            # Strategy 4: Use genreId for electronics
-            {
-                "applicationId": self.app_id,
-                "affiliateId": self.affiliate_id,
-                "keyword": keyword,
-                "genreId": "562637", # Electronics category
-                "hits": api_hits,
-                "imageFlag": 1,
-                "formatVersion": 2
+                "hits": max_results,  # Increased from 5 to 30 to get more results for ranking
+                "imageFlag": 1,  # Include image URLs
+                "availability": 1,  # Only available items
+                "sort": "-reviewCount"  # Sort by review count (highest first)
             }
-        ]
-        
-        processed_items = []
-        
-        for strategy_index, params in enumerate(search_strategies):
-            try:
-                print(f"DEBUG: Trying Rakuten search strategy {strategy_index+1} for keyword: {keyword}")
-                print(f"DEBUG: Request URL: {url}?{'&'.join([f'{k}={v}' for k, v in params.items() if k not in ['applicationId', 'affiliateId']])}")
+            
+            # Add additional parameters for better results
+            if len(keyword) > 2:
+                # For longer keywords, add these parameters
+                params.update({
+                    "minPrice": 1,  # Minimum price of 1 yen
+                    "NGKeyword": "中古,used,ジャンク,junk,壊れ,故障",  # Exclude used/broken items
+                    "field": 1,  # Use title and catch copy for search
+                    "carrier": 0,  # Include all carriers
+                    "genreInformationFlag": 1  # Include genre information
+                })
+            
+            # Make the API request
+            response = requests.get(self.endpoint, params=params)
+            
+            # Check if the request was successful
+            if response.status_code != 200:
+                print(f"Error: Rakuten API returned status code {response.status_code}")
+                print(f"Response content: {response.text[:200]}...")  # Print first 200 chars of response
+                return []
                 
-                response = requests.get(url, params=params)
+            # Parse the response
+            result = response.json()
+            
+            # Check if there are any items
+            if "Items" not in result or not result["Items"]:
+                print("No items found in Rakuten API response")
+                return []
                 
-                if response.status_code != 200:
-                    print(f"Strategy {strategy_index+1} failed with status code {response.status_code}")
-                    continue
-                
-                data = response.json()
-                
-                # Debug the response
-                print(f"DEBUG: Rakuten API response status: {response.status_code}")
-                print(f"DEBUG: Response contains 'Items' key: {'Items' in data}")
-                if 'Items' in data:
-                    print(f"DEBUG: Number of items in response: {len(data['Items'])}")
-                    
-                    # Process each item in the response
-                    for item_index, item_wrapper in enumerate(data['Items']):
-                        try:
-                            # The actual item data is nested under 'Item'
-                            if 'Item' in item_wrapper:
-                                item = item_wrapper['Item']
-                            else:
-                                item = item_wrapper
-                            
-                            # Extract the necessary information
-                            item_data = {
-                                "itemName": item.get('itemName', f"Rakuten Product {item_index+1}"),
-                                "itemPrice": int(item.get('itemPrice', 0)),
-                                "itemUrl": item.get('itemUrl', ''),
-                                "shopName": item.get('shopName', '楽天市場'),
-                                "availability": True
-                            }
-                            
-                            # Extract image URLs
-                            if 'mediumImageUrls' in item and item['mediumImageUrls']:
-                                if isinstance(item['mediumImageUrls'], list) and len(item['mediumImageUrls']) > 0:
-                                    if isinstance(item['mediumImageUrls'][0], dict) and 'imageUrl' in item['mediumImageUrls'][0]:
-                                        image_url = item['mediumImageUrls'][0]['imageUrl']
-                                        # Ensure the URL uses HTTPS
-                                        if image_url.startswith('http:'):
-                                            image_url = image_url.replace('http:', 'https:')
-                                        # Add size parameter if needed
-                                        if 'thumbnail.image.rakuten.co.jp' in image_url and not '_ex=' in image_url and not '?_ex=' in image_url:
-                                            image_url = f"{image_url}{'&' if '?' in image_url else '?'}_ex=300x300"
-                                        
-                                        # Check if this is a default "now_printing.jpg" image
-                                        if 'now_printing.jpg' in image_url:
-                                            # Try to scrape the actual image from the product page
-                                            if 'itemUrl' in item and item['itemUrl']:
-                                                scraped_image = self._scrape_rakuten_product_image(item['itemUrl'])
-                                                if scraped_image:
-                                                    print(f"DEBUG: Replaced default image with scraped image: {scraped_image}")
-                                                    item_data["mediumImageUrls"] = [{"imageUrl": scraped_image}]
-                                                else:
-                                                    # If scraping fails, use a sample image
-                                                    sample_images = [
-                                                        "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-                                                        "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-                                                        "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-                                                        "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
-                                                    ]
-                                                    item_hash = hashlib.md5(item_data["itemName"].encode()).hexdigest()
-                                                    index = int(item_hash[:8], 16) % len(sample_images)
-                                                    sample_image = sample_images[index]
-                                                    print(f"DEBUG: Using sample image for product: {sample_image}")
-                                                    item_data["mediumImageUrls"] = [{"imageUrl": sample_image}]
-                                        else:
-                                            item_data["mediumImageUrls"] = [{"imageUrl": image_url}]
-                                            # Print the image URL for debugging
-                                            print(f"DEBUG: Extracted Rakuten image URL: {image_url}")
-                            
-                            # If no image URL is found, try to scrape the product page
-                            if 'mediumImageUrls' not in item_data and 'itemUrl' in item and item['itemUrl']:
-                                scraped_image = self._scrape_rakuten_product_image(item['itemUrl'])
-                                if scraped_image:
-                                    print(f"DEBUG: Scraped image from product page: {scraped_image}")
-                                    item_data["mediumImageUrls"] = [{"imageUrl": scraped_image}]
-                                else:
-                                    # If scraping fails, use a sample image
-                                    sample_images = [
-                                        "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-                                        "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-                                        "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-                                        "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
-                                    ]
-                                    item_hash = hashlib.md5(item_data["itemName"].encode()).hexdigest()
-                                    index = int(item_hash[:8], 16) % len(sample_images)
-                                    sample_image = sample_images[index]
-                                    print(f"DEBUG: Using sample image for product: {sample_image}")
-                                    item_data["mediumImageUrls"] = [{"imageUrl": sample_image}]
-                            
-                            # Add additional information if available
-                            if 'reviewAverage' in item:
-                                item_data["reviewAverage"] = float(item.get('reviewAverage', 0))
-                            
-                            if 'reviewCount' in item:
-                                item_data["reviewCount"] = int(item.get('reviewCount', 0))
-                            
-                            if 'pointRate' in item:
-                                item_data["pointRate"] = int(item.get('pointRate', 0))
-                            
-                            if 'shopCode' in item:
-                                item_data["shopCode"] = item.get('shopCode', '')
-                            
-                            if 'genreId' in item:
-                                item_data["genreId"] = item.get('genreId', '')
-                            
-                            processed_items.append(item_data)
-                        except Exception as e:
-                            print(f"Error processing Rakuten item {item_index+1}: {e}")
-                    
-                    # If we found items, return them
-                    if processed_items:
-                        print(f"Found {len(processed_items)} products via Rakuten API strategy {strategy_index+1}")
-                        return processed_items[:max_results]
+            # Extract items from the response
+            items = []
+            for item_wrapper in result["Items"]:
+                if "Item" in item_wrapper:
+                    items.append(item_wrapper["Item"])
                 else:
-                    print(f"No 'Items' key in Rakuten API response for strategy {strategy_index+1}")
-            except Exception as e:
-                print(f"Error in Rakuten search strategy {strategy_index+1}: {e}")
-        
-        # If all API strategies failed, try direct scraping as a last resort
-        if not processed_items:
-            try:
-                print("Trying direct scraping as a last resort")
-                
-                # Encode the search query
-                encoded_query = urllib.parse.quote(keyword)
-                scrape_url = f"https://search.rakuten.co.jp/search/mall/{encoded_query}/"
-                
-                # Set headers to mimic a browser
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7'
-                }
-                
-                # Make the request
-                print(f"DEBUG: Scraping URL: {scrape_url}")
-                response = requests.get(scrape_url, headers=headers)
-                
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    
-                    # Find all product items
-                    items = soup.select('.searchresultitem')
-                    print(f"DEBUG: Found {len(items)} items via scraping")
-                    
-                    # Process each item
-                    for index, item in enumerate(items):
-                        if index >= max_results:
-                            break
-                            
-                        try:
-                            # Extract title
-                            title_elem = item.select_one('.title')
-                            title = title_elem.text.strip() if title_elem else f"Rakuten Product {index+1}"
-                            
-                            # Extract price
-                            price_elem = item.select_one('.important')
-                            price = 0
-                            if price_elem:
-                                price_text = price_elem.text.strip()
-                                # Remove non-numeric characters
-                                price_digits = ''.join(filter(str.isdigit, price_text))
-                                if price_digits:
-                                    price = int(price_digits)
-                            
-                            # Extract URL
-                            url = ''
-                            link_elem = item.select_one('a.title')
-                            if link_elem and link_elem.has_attr('href'):
-                                url = link_elem['href']
-                            
-                            # Extract image
-                            image = ''
-                            img_elem = item.select_one('img.image')
-                            
-                            if img_elem:
-                                for attr in ['data-src', 'src', 'data-original']:
-                                    image = img_elem.get(attr, '')
-                                    if image and not image.startswith('data:') and not image == '/':
-                                        if not image.startswith('http'):
-                                            image = f"https:{image}" if image.startswith('//') else f"https://www.rakuten.co.jp{image}"
-                                        break
-                            
-                            # If no image found or it's a default image, try to scrape the product page
-                            if not image or 'now_printing.jpg' in image:
-                                if url:
-                                    scraped_image = self._scrape_rakuten_product_image(url)
-                                    if scraped_image:
-                                        print(f"DEBUG: Scraped image from product page: {scraped_image}")
-                                        image = scraped_image
-                            
-                            # If still no image, use a sample image
-                            if not image or 'now_printing.jpg' in image:
-                                sample_images = [
-                                    "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-                                    "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-                                    "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-                                    "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
-                                ]
-                                item_hash = hashlib.md5(title.encode()).hexdigest()
-                                index = int(item_hash[:8], 16) % len(sample_images)
-                                image = sample_images[index]
-                                print(f"DEBUG: Using sample image for scraped product: {image}")
-                            
-                            # Create item in the format expected by the API
-                            item_data = {
-                                "itemName": title,
-                                "itemPrice": price,
-                                "itemUrl": url,
-                                "mediumImageUrls": [{"imageUrl": image}],
-                                "shopName": "楽天市場",
-                                "availability": True
-                            }
-                            
-                            print(f"DEBUG: Scraped item - Title: {title[:30]}..., Price: {price}")
-                            processed_items.append(item_data)
-                        except Exception as e:
-                            print(f"Error processing scraped item {index+1}: {e}")
-                    
-                    if processed_items:
-                        print(f"Found {len(processed_items)} products via direct scraping")
-                        return processed_items[:max_results]
-                else:
-                    print(f"DEBUG: Scraping failed with status code {response.status_code}")
-            except Exception as e:
-                print(f"Error in direct scraping: {e}")
-        
-        # If all strategies failed, use fallback
-        if not processed_items:
-            print("All Rakuten search strategies failed, using fallback products")
-            return self._get_fallback_products(keyword, max_results)
-        
-        return processed_items[:max_results]
+                    items.append(item_wrapper)
+            
+            print(f"DEBUG: Found {len(items)} items from Rakuten API")
+            return items
+            
+        except Exception as e:
+            print(f"Error in Rakuten API search: {e}")
+            return []
             
     def _get_fallback_products(self, keyword, max_results=10):
         """
@@ -691,10 +476,10 @@ class RakutenAPI:
         
         # Create a list of sample Rakuten product images to use as fallbacks
         sample_images = [
-            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-            "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
+            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten24/cabinet/goods/4903301181392_01.jpg",
+            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/0867/9784088820867.jpg",
+            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten24/cabinet/e01/4903301176718.jpg",
+            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten/cabinet/ichiba/app/pc/img/common/logo_rakuten_320x320.png"
         ]
         
         # Try to extract a base price from the keyword if it contains numbers
@@ -740,6 +525,9 @@ class RakutenAPI:
             # Get a sample image or use a placeholder if no samples are available
             image_url = sample_images[i % len(sample_images)] if sample_images else f"https://placehold.co/300x300/BF0000/FFFFFF?text=楽天+{i}"
             
+            # Process the image URL to ensure it's properly formatted
+            image_url = self._process_rakuten_image_url(image_url)
+            
             # Create a fallback product
             product = {
                 "itemName": f"{keyword} 楽天市場商品 {i}",
@@ -781,41 +569,20 @@ class RakutenAPI:
                                 if isinstance(item['mediumImageUrls'][0], dict) and 'imageUrl' in item['mediumImageUrls'][0]:
                                     image_url = item['mediumImageUrls'][0]['imageUrl']
                         
-                        # If no image URL is found or it's a default image, try to scrape the product page
-                        if not image_url or 'now_printing.jpg' in image_url:
-                            if 'itemUrl' in item and item['itemUrl']:
-                                scraped_image = self._scrape_rakuten_product_image(item['itemUrl'])
-                                if scraped_image:
-                                    print(f"DEBUG: Replaced default image with scraped image: {scraped_image}")
-                                    image_url = scraped_image
-                        
-                        # If still no valid image, use a sample image
-                        if not image_url or 'now_printing.jpg' in image_url or 'placehold.co' in image_url:
+                        # Process the image URL to ensure it's properly formatted
+                        if image_url:
+                            image_url = self._process_rakuten_image_url(image_url)
+                        else:
+                            # If no image URL is found, use a sample image
                             sample_images = [
-                                "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-                                "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-                                "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-                                "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
+                                "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten24/cabinet/goods/4903301181392_01.jpg",
+                                "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/0867/9784088820867.jpg",
+                                "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten24/cabinet/e01/4903301176718.jpg",
+                                "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten/cabinet/ichiba/app/pc/img/common/logo_rakuten_320x320.png"
                             ]
                             item_hash = hashlib.md5(item.get('itemName', keywords).encode()).hexdigest()
                             index = int(item_hash[:8], 16) % len(sample_images)
-                            image_url = sample_images[index]
-                            print(f"DEBUG: Using sample image for fallback product: {image_url}")
-                        
-                        # Final check to ensure we're not using a placeholder
-                        if 'placehold.co' in image_url:
-                            print(f"WARNING: Still using placeholder image: {image_url}")
-                            # Replace with a real product image
-                            sample_images = [
-                                "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-                                "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-                                "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-                                "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
-                            ]
-                            item_hash = hashlib.md5(item.get('itemName', keywords).encode()).hexdigest()
-                            index = int(item_hash[:8], 16) % len(sample_images)
-                            image_url = sample_images[index]
-                            print(f"DEBUG: Replaced placeholder with sample image: {image_url}")
+                            image_url = self._process_rakuten_image_url(sample_images[index])
                         
                         # Create a ProductDetail object
                         product = ProductDetail(
@@ -850,10 +617,10 @@ class RakutenAPI:
         
         # Create a list of sample Rakuten product images to use as fallbacks
         sample_images = [
-            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg",
-            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakutenkobo-ebooks/cabinet/4865/2000008384865.jpg",
-            "https://thumbnail.image.rakuten.co.jp/@0_mall/es-toys/cabinet/t179/4905330851741.jpg",
-            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/8861/9784798158860.jpg"
+            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten/cabinet/ichiba/app/pc/img/common/logo_rakuten_320x320.png",
+            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten24/cabinet/goods/4903301181392_01.jpg",
+            "https://thumbnail.image.rakuten.co.jp/@0_mall/book/cabinet/0867/9784088820867.jpg",
+            "https://thumbnail.image.rakuten.co.jp/@0_mall/rakuten24/cabinet/e01/4903301176718.jpg"
         ]
         
         # Try to extract a base price from the keyword if it contains numbers
@@ -898,6 +665,9 @@ class RakutenAPI:
             # Get a sample image or use a placeholder if no samples are available
             image_url = sample_images[i % len(sample_images)] if sample_images else f"https://placehold.co/300x300/BF0000/FFFFFF?text=楽天+{i}"
             
+            # Process the image URL to ensure it's properly formatted
+            image_url = self._process_rakuten_image_url(image_url)
+            
             # Create a fallback price info
             price_info = {
                 'store': "楽天市場",
@@ -910,223 +680,5 @@ class RakutenAPI:
             results.append(price_info)
             
         return results
-
-    def _scrape_rakuten_product_image(self, product_url):
-        """
-        Scrape the actual product image from the Rakuten product page with improved handling
-        """
-        try:
-            print(f"DEBUG: Scraping product image from: {product_url}")
-            
-            # Set headers to mimic a browser with multiple User-Agent options
-            headers_list = [
-                {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                    'Cache-Control': 'max-age=0',
-                    'Sec-Fetch-Dest': 'document',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Sec-Fetch-Site': 'none',
-                    'Sec-Fetch-User': '?1',
-                    'Upgrade-Insecure-Requests': '1'
-                },
-                {
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15',
-                    'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Cache-Control': 'max-age=0',
-                    'Upgrade-Insecure-Requests': '1'
-                },
-                {
-                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
-                    'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Cache-Control': 'max-age=0',
-                    'Upgrade-Insecure-Requests': '1'
-                }
-            ]
-            
-            # Try each User-Agent until we get a successful response
-            response = None
-            for headers in headers_list:
-                try:
-                    # Make the request with a timeout
-                    response = requests.get(product_url, headers=headers, timeout=10)
-                    if response.status_code == 200:
-                        break
-                except Exception as e:
-                    print(f"Error with User-Agent {headers['User-Agent']}: {e}")
-                    continue
-            
-            # If all requests failed, return None
-            if not response or response.status_code != 200:
-                print(f"DEBUG: Failed to scrape image from product page, status code: {response.status_code if response else 'No response'}")
-                return None
-            
-            # Parse the HTML
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # First try to find the Open Graph image (usually the main product image)
-            og_image = soup.select_one('meta[property="og:image"]')
-            if og_image and og_image.get('content'):
-                image_url = og_image.get('content')
-                if image_url and not 'now_printing.jpg' in image_url and not 'placehold.co' in image_url:
-                    # Ensure the URL is absolute
-                    if not image_url.startswith('http'):
-                        image_url = f"https:{image_url}" if image_url.startswith('//') else f"https://www.rakuten.co.jp{image_url}"
-                    
-                    # Ensure the URL uses HTTPS
-                    if image_url.startswith('http:'):
-                        image_url = image_url.replace('http:', 'https:')
-                    
-                    # Add size parameter if needed for Rakuten thumbnail images
-                    if 'thumbnail.image.rakuten.co.jp' in image_url and not '_ex=' in image_url and not '?_ex=' in image_url:
-                        image_url = f"{image_url}{'&' if '?' in image_url else '?'}_ex=300x300"
-                    
-                    print(f"DEBUG: Successfully scraped OG image: {image_url}")
-                    return image_url
-            
-            # Try different image selectors used by Rakuten
-            image_selectors = [
-                'span.item-image img',  # Common product image selector
-                'div#image_main img',   # Another common selector
-                'div.item-image-container img',  # Another selector
-                'div.image-container img',  # Another selector
-                'div.rakuten-image img',  # Another selector
-                'div.item-img-box img',  # Another selector
-                'div.item_image img',  # Another selector
-                'div#rakutenLimitedId_cart img',  # Another selector
-                'div#rakutenLimitedId_aroundCart img',  # Another selector
-                'img[itemprop="image"]',  # Schema.org image
-                'div.rnkRanking_imageBox img',  # Ranking image
-                'div.rnkRanking_image img',  # Another ranking image
-                'div#riMes__mainImage img',  # Main image
-                'div.imagecaption img',  # Image caption
-                'div.rakutenLimitedId_ImageMain1-3 img',  # Another image selector
-                'div#rakutenLimitedId_ImageMain1-3 img',  # Another image selector
-                'div.image_main img',  # Another selector
-                'div.main_image img',  # Another selector
-                'div.product-image-container img',  # Another selector
-                'div.product_image img',  # Another selector
-                'div.product-image img',  # Another selector
-                'div.main-image img',  # Another selector
-                'div.mainImage img',  # Another selector
-                'div.main_image_container img',  # Another selector
-                'div.main-image-container img',  # Another selector
-                'div.item-image img',  # Another selector
-                'div.item_image_container img',  # Another selector
-                'div.item-image-main img',  # Another selector
-                'div.item_image_main img',  # Another selector
-            ]
-            
-            # Try each selector
-            for selector in image_selectors:
-                img_elems = soup.select(selector)
-                for img_elem in img_elems:
-                    # For img tags, check src and data-src attributes
-                    for attr in ['data-src', 'src', 'data-original', 'data-lazy-src', 'data-lazy', 'data-original-src']:
-                        image_url = img_elem.get(attr)
-                        if image_url and not image_url.startswith('data:') and not image_url == '/' and not 'now_printing.jpg' in image_url and not 'placehold.co' in image_url:
-                            # Ensure the URL is absolute
-                            if not image_url.startswith('http'):
-                                image_url = f"https:{image_url}" if image_url.startswith('//') else f"https://www.rakuten.co.jp{image_url}"
-                            
-                            # Ensure the URL uses HTTPS
-                            if image_url.startswith('http:'):
-                                image_url = image_url.replace('http:', 'https:')
-                            
-                            # Add size parameter if needed for Rakuten thumbnail images
-                            if 'thumbnail.image.rakuten.co.jp' in image_url and not '_ex=' in image_url and not '?_ex=' in image_url:
-                                image_url = f"{image_url}{'&' if '?' in image_url else '?'}_ex=300x300"
-                            
-                            # Validate that this is likely a product image (not a tiny icon or button)
-                            if any(x in image_url.lower() for x in ['product', 'item', 'goods', 'image', 'img', 'photo', 'picture', 'thumbnail']):
-                                print(f"DEBUG: Successfully scraped image: {image_url}")
-                                return image_url
-            
-            # If no image found with selectors, try to find any img tag with a valid src
-            all_images = soup.find_all('img')
-            valid_images = []
-            
-            for img in all_images:
-                for attr in ['data-src', 'src', 'data-original', 'data-lazy-src', 'data-lazy', 'data-original-src']:
-                    image_url = img.get(attr)
-                    if image_url and not image_url.startswith('data:') and not image_url == '/' and not 'now_printing.jpg' in image_url and not 'placehold.co' in image_url:
-                        # Check if it's likely a product image (usually larger and in specific paths)
-                        if re.search(r'(product|item|goods|image|img|photo|picture|thumbnail).*\.(jpg|jpeg|png|gif)', image_url, re.IGNORECASE) or \
-                           re.search(r'\.(jpg|jpeg|png|gif)\?.*', image_url, re.IGNORECASE):
-                            # Ensure the URL is absolute
-                            if not image_url.startswith('http'):
-                                image_url = f"https:{image_url}" if image_url.startswith('//') else f"https://www.rakuten.co.jp{image_url}"
-                            
-                            # Ensure the URL uses HTTPS
-                            if image_url.startswith('http:'):
-                                image_url = image_url.replace('http:', 'https:')
-                            
-                            # Add size parameter if needed for Rakuten thumbnail images
-                            if 'thumbnail.image.rakuten.co.jp' in image_url and not '_ex=' in image_url and not '?_ex=' in image_url:
-                                image_url = f"{image_url}{'&' if '?' in image_url else '?'}_ex=300x300"
-                            
-                            # Try to determine if this is a product image by checking for width/height attributes
-                            width = img.get('width')
-                            height = img.get('height')
-                            
-                            # If width and height are available, check if it's a reasonably sized image
-                            if width and height:
-                                try:
-                                    w = int(width)
-                                    h = int(height)
-                                    if w >= 100 and h >= 100:  # Likely a product image, not an icon
-                                        valid_images.append((image_url, w * h))  # Store image URL and area
-                                except ValueError:
-                                    # If we can't parse width/height, still consider it
-                                    valid_images.append((image_url, 0))
-                            else:
-                                # If no width/height, still consider it
-                                valid_images.append((image_url, 0))
-            
-            # Sort valid images by area (largest first)
-            valid_images.sort(key=lambda x: x[1], reverse=True)
-            
-            # Return the largest image if available
-            if valid_images:
-                print(f"DEBUG: Found potential product image: {valid_images[0][0]}")
-                return valid_images[0][0]
-            
-            # Look for JSON-LD structured data which might contain image URLs
-            script_tags = soup.find_all('script', type='application/ld+json')
-            for script in script_tags:
-                try:
-                    if script.string:
-                        json_data = json.loads(script.string)
-                        if isinstance(json_data, dict):
-                            # Check for image in Product schema
-                            if json_data.get('@type') == 'Product' and 'image' in json_data:
-                                image_url = json_data['image']
-                                if isinstance(image_url, list) and len(image_url) > 0:
-                                    image_url = image_url[0]
-                                
-                                if image_url and not 'now_printing.jpg' in image_url and not 'placehold.co' in image_url:
-                                    # Ensure the URL is absolute
-                                    if not image_url.startswith('http'):
-                                        image_url = f"https:{image_url}" if image_url.startswith('//') else f"https://www.rakuten.co.jp{image_url}"
-                                    
-                                    # Ensure the URL uses HTTPS
-                                    if image_url.startswith('http:'):
-                                        image_url = image_url.replace('http:', 'https:')
-                                    
-                                    print(f"DEBUG: Found image in JSON-LD: {image_url}")
-                                    return image_url
-                except Exception as e:
-                    print(f"Error parsing JSON-LD: {e}")
-                    continue
-            
-            print(f"DEBUG: Failed to find any valid product images on the page")
-            return None
-            
-        except Exception as e:
-            print(f"Error scraping product image: {e}")
-            return None
 
 rakuten_api = RakutenAPI() 

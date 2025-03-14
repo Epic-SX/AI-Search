@@ -73,7 +73,7 @@ export default function SearchForm({
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [useAIEnhancement, setUseAIEnhancement] = useState(false);
-  const [useDirectSearch, setUseDirectSearch] = useState(true);
+  const useDirectSearch = true;
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewKeywords, setPreviewKeywords] = useState<{original: string, enhanced: string}[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -384,17 +384,6 @@ export default function SearchForm({
               sx={{ mb: 2 }}
             />
             
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={useDirectSearch}
-                  onChange={(e) => setUseDirectSearch(e.target.checked)}
-                  disabled={isLoading}
-                />
-              }
-              label="直接検索（型番が正確な場合）"
-            />
-            
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
               <Button
                 type="submit"
@@ -498,17 +487,6 @@ export default function SearchForm({
                 )}
               </Box>
             )}
-            
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={useDirectSearch}
-                  onChange={(e) => setUseDirectSearch(e.target.checked)}
-                  disabled={isLoading}
-                />
-              }
-              label="直接検索（型番が正確な場合）"
-            />
             
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
               <Button

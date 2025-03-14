@@ -689,7 +689,23 @@ class ImageSearchEngine:
         """
         画像分析が失敗した場合のフォールバック検索語
         """
-        return "商品"
+        # 一般的な商品カテゴリーのリスト
+        common_categories = [
+            "スマートフォン",  # Smartphone
+            "テレビ",         # TV
+            "カメラ",         # Camera
+            "パソコン",       # Computer
+            "家電",           # Home appliance
+            "時計",           # Watch
+            "バッグ",         # Bag
+            "靴",             # Shoes
+            "衣類",           # Clothing
+            "アクセサリー"    # Accessory
+        ]
+        
+        # ランダムに一つ選択
+        import random
+        return random.choice(common_categories)
 
     def process_similar_products(self, web_detection):
         """
@@ -699,26 +715,39 @@ class ImageSearchEngine:
         
         # 視覚的に類似した画像の処理
         visual_matches = web_detection.get('visuallySimilarImages', [])
-        for match in visual_matches[:5]:  # 上位5件を取得
+        for match in visual_matches[:10]:  # 上位10件を取得 (増やして後でフィルタリングできるようにする)
             product = {
                 'image_url': match.get('url'),
                 'score': round(float(match.get('score', 0.0)), 2) if 'score' in match else 0.0,
-                'title': self._extract_title(match)
+                'title': self._extract_title(match),
+                'price': 0,  # デフォルト価格
+                'source': 'unknown',  # デフォルトソース
+                'store': 'unknown',  # デフォルトストア
+                'product_url': match.get('url'),  # 商品URLをデフォルトで画像URLに設定
+                'ranking': 0  # ランキング情報を追加
             }
             similar_products.append(product)
             
         # 完全一致または部分一致の画像も追加
         full_matches = web_detection.get('fullMatchingImages', [])
-        for match in full_matches[:2]:  # 上位2件を取得
-            if len(similar_products) >= 5:
-                break
+        for match in full_matches[:5]:  # 上位5件を取得
             product = {
                 'image_url': match.get('url'),
                 'score': 1.0,  # 完全一致は最高スコア
                 'title': self._extract_title(match),
-                'match_type': 'exact'
+                'match_type': 'exact',
+                'price': 0,  # デフォルト価格
+                'source': 'unknown',  # デフォルトソース
+                'store': 'unknown',  # デフォルトストア
+                'product_url': match.get('url'),  # 商品URLをデフォルトで画像URLに設定
+                'ranking': 0  # ランキング情報を追加
             }
             similar_products.append(product)
+
+        # スコアに基づいてランキングを設定
+        similar_products.sort(key=lambda x: x['score'], reverse=True)
+        for i, product in enumerate(similar_products):
+            product['ranking'] = i + 1
 
         return similar_products
 
