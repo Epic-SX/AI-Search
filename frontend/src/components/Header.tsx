@@ -6,8 +6,8 @@ import { AppBar, Toolbar, Typography, Button, Box, Container } from '@mui/materi
 import { 
   Search as SearchIcon, 
   Image as ImageIcon, 
-  CompareArrows as CompareIcon,
-  Build as BuildIcon 
+  Build as BuildIcon,
+  ViewList as BatchIcon
 } from '@mui/icons-material';
 
 export default function Header() {
@@ -83,18 +83,18 @@ export default function Header() {
             </Button>
             <Button 
               component={Link} 
-              href="/compare"
-              startIcon={<CompareIcon />}
+              href="/batch-compare"
+              startIcon={<BatchIcon />}
               sx={{ 
                 mx: 1,
-                fontWeight: isActive('/compare') ? 'bold' : 'normal',
-                color: isActive('/compare') ? 'primary.main' : 'inherit',
-                borderBottom: isActive('/compare') ? '2px solid' : 'none',
+                fontWeight: isActive('/batch-compare') ? 'bold' : 'normal',
+                color: isActive('/batch-compare') ? 'primary.main' : 'inherit',
+                borderBottom: isActive('/batch-compare') ? '2px solid' : 'none',
                 borderRadius: 0,
                 pb: 0.5
               }}
             >
-              商品比較
+              一括比較
             </Button>
           </Box>
         </Toolbar>

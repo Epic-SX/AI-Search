@@ -1,53 +1,28 @@
 'use client';
 
-import { useState } from 'react';
-import { toast } from 'react-toastify';
-import { compareProducts } from '@/api';
-import { ComparisonResult } from '@/types';
-import CompareForm from '@/components/CompareForm';
-import ComparisonResults from '@/components/ComparisonResults';
-import LoadingSpinner from '@/components/LoadingSpinner';
-import { Container, Typography } from '@mui/material';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Container, Typography, CircularProgress, Box } from '@mui/material';
 
 export default function ComparePage() {
-  const [comparisonResult, setComparisonResult] = useState<ComparisonResult | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const handleCompare = async (productA: string, productB: string) => {
-    if (!productA.trim() || !productB.trim()) {
-      toast.error('比較する2つの商品を入力してください');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const result = await compareProducts(productA, productB);
-      setComparisonResult(result);
-    } catch (error) {
-      toast.error('商品比較中にエラーが発生しました');
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const router = useRouter();
+  
+  useEffect(() => {
+    // Redirect to the batch-compare page
+    router.replace('/batch-compare');
+  }, [router]);
 
   return (
     <Container maxWidth="lg">
-      <Typography variant="h4" component="h1" fontWeight="bold" sx={{ mb: 3 }}>
-        商品比較
-      </Typography>
-      
-      <CompareForm onCompare={handleCompare} />
-      
-      {loading ? (
-        <LoadingSpinner />
-      ) : (
-        <>
-          {comparisonResult && (
-            <ComparisonResults result={comparisonResult} />
-          )}
-        </>
-      )}
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '50vh' }}>
+        <CircularProgress size={60} sx={{ mb: 3 }} />
+        <Typography variant="h5" component="h1" fontWeight="bold">
+          リダイレクト中...
+        </Typography>
+        <Typography variant="body1" sx={{ mt: 2 }}>
+          一括比較ページに移動しています
+        </Typography>
+      </Box>
     </Container>
   );
 } 

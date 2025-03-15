@@ -285,8 +285,12 @@ export default function SearchForm({
       csvContent += `${cleanedOriginal},${item.enhanced}\n`;
     });
     
+    // Add UTF-8 BOM to ensure Excel recognizes the encoding correctly
+    const BOM = '\uFEFF';
+    const csvWithBOM = BOM + csvContent;
+    
     // Create a blob and download link
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([csvWithBOM], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
