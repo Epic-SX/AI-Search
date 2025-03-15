@@ -564,67 +564,246 @@ def compare_products():
     if not product_a or not product_b:
         return jsonify({"error": "Both products are required for comparison"}), 400
     
+    # Helper function to safely get attribute from either dict or object
+    def get_attr(obj, attr, default=None):
+        if isinstance(obj, dict):
+            return obj.get(attr, default)
+        else:
+            return getattr(obj, attr, default)
+    
+    # Helper function to clean HTML tags from text
+    def clean_html(html_text):
+        """Remove HTML tags from text"""
+        if not html_text:
+            return ""
+            
+        import re
+        # Replace <br>, <br/>, <br /> with newlines
+        text = re.sub(r'<br\s*/?>', '\n', html_text, flags=re.IGNORECASE)
+        
+        # Remove all other HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        
+        # Replace multiple newlines with a single newline
+        text = re.sub(r'\n+', '\n', text)
+        
+        # Replace multiple spaces with a single space
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
+    
     try:
         # 各商品の詳細情報を取得
         products_a = price_comparison.get_detailed_products(product_a)
         products_b = price_comparison.get_detailed_products(product_b)
         
-        if not products_a or not products_b:
-            return jsonify({"error": "Could not find product information"}), 404
+        # Check if we found any products
+        if not products_a:
+            return jsonify({"error": f"Could not find information for product: {product_a}"}), 404
+        
+        if not products_b:
+            return jsonify({"error": f"Could not find information for product: {product_b}"}), 404
         
         # 最初の商品を使用
         product_a_info = products_a[0]
         product_b_info = products_b[0]
         
+        # Validate that both products have the necessary data
+        price_a = get_attr(product_a_info, 'price')
+        price_b = get_attr(product_b_info, 'price')
+        
+        if price_a is None:
+            return jsonify({"error": f"Price information not available for product: {product_a}"}), 400
+            
+        if price_b is None:
+            return jsonify({"error": f"Price information not available for product: {product_b}"}), 400
+        
         # 違いを分析（実際のアプリケーションではより詳細な分析が必要）
         differences = []
         
         # 価格の違い
-        price_diff = abs(product_a_info.price - product_b_info.price)
-        price_percentage = price_diff / max(product_a_info.price, product_b_info.price) * 100
-        
-        differences.append({
-            'category': '価格',
-            'product_a_value': f"{product_a_info.price}円",
-            'product_b_value': f"{product_b_info.price}円",
-            'significance': 'high' if price_percentage > 20 else 'medium' if price_percentage > 5 else 'low'
-        })
+        try:
+            price_diff = abs(price_a - price_b)
+            price_percentage = price_diff / max(price_a, price_b) * 100 if max(price_a, price_b) > 0 else 0
+            
+            differences.append({
+                'category': '価格',
+                'product_a_value': f"{price_a}円",
+                'product_b_value': f"{price_b}円",
+                'significance': 'high' if price_percentage > 20 else 'medium' if price_percentage > 5 else 'low'
+            })
+        except (TypeError, ZeroDivisionError) as e:
+            print(f"Error calculating price difference: {e}")
+            # Add a placeholder for price difference
+            differences.append({
+                'category': '価格',
+                'product_a_value': f"{price_a or '不明'}円",
+                'product_b_value': f"{price_b or '不明'}円",
+                'significance': 'medium'
+            })
         
         # 送料の違い
-        if product_a_info.shipping_fee is not None and product_b_info.shipping_fee is not None:
-            shipping_diff = abs((product_a_info.shipping_fee or 0) - (product_b_info.shipping_fee or 0))
-            differences.append({
-                'category': '送料',
-                'product_a_value': f"{product_a_info.shipping_fee or 0}円",
-                'product_b_value': f"{product_b_info.shipping_fee or 0}円",
-                'significance': 'high' if shipping_diff > 500 else 'medium' if shipping_diff > 100 else 'low'
-            })
+        try:
+            shipping_fee_a = get_attr(product_a_info, 'shipping_fee', 0)
+            shipping_fee_b = get_attr(product_b_info, 'shipping_fee', 0)
+            
+            if shipping_fee_a is not None and shipping_fee_b is not None:
+                shipping_diff = abs((shipping_fee_a or 0) - (shipping_fee_b or 0))
+                differences.append({
+                    'category': '送料',
+                    'product_a_value': f"{shipping_fee_a or 0}円",
+                    'product_b_value': f"{shipping_fee_b or 0}円",
+                    'significance': 'high' if shipping_diff > 500 else 'medium' if shipping_diff > 100 else 'low'
+                })
+        except Exception as e:
+            print(f"Error calculating shipping difference: {e}")
         
         # 評価の違い
-        if product_a_info.rating is not None and product_b_info.rating is not None:
-            rating_diff = abs((product_a_info.rating or 0) - (product_b_info.rating or 0))
-            differences.append({
-                'category': '評価',
-                'product_a_value': f"{product_a_info.rating or 0}点",
-                'product_b_value': f"{product_b_info.rating or 0}点",
-                'significance': 'high' if rating_diff > 1.5 else 'medium' if rating_diff > 0.5 else 'low'
-            })
+        try:
+            rating_a = get_attr(product_a_info, 'rating')
+            rating_b = get_attr(product_b_info, 'rating')
+            
+            if rating_a is not None and rating_b is not None:
+                rating_diff = abs((rating_a or 0) - (rating_b or 0))
+                differences.append({
+                    'category': '評価',
+                    'product_a_value': f"{rating_a or 0}点",
+                    'product_b_value': f"{rating_b or 0}点",
+                    'significance': 'high' if rating_diff > 1.5 else 'medium' if rating_diff > 0.5 else 'low'
+                })
+        except Exception as e:
+            print(f"Error calculating rating difference: {e}")
+        
+        # 耐荷重の違い (Extract from description or additional_info)
+        try:
+            # Try to find load capacity information in the product data
+            load_capacity_a = "不明"
+            load_capacity_b = "不明"
+            
+            # Check in additional_info
+            additional_info_a = get_attr(product_a_info, 'additional_info', {})
+            if additional_info_a:
+                for key, value in additional_info_a.items():
+                    if '荷重' in key or '耐荷重' in key or '最大荷重' in key:
+                        load_capacity_a = str(value)
+                        break
+            
+            additional_info_b = get_attr(product_b_info, 'additional_info', {})
+            if additional_info_b:
+                for key, value in additional_info_b.items():
+                    if '荷重' in key or '耐荷重' in key or '最大荷重' in key:
+                        load_capacity_b = str(value)
+                        break
+            
+            # Check in description
+            description_a = get_attr(product_a_info, 'description', '')
+            if load_capacity_a == "不明" and description_a:
+                import re
+                load_capacity_match = re.search(r'耐荷重[：:]\s*(\d+[kgkg]*)', description_a)
+                if load_capacity_match:
+                    load_capacity_a = load_capacity_match.group(1)
+            
+            description_b = get_attr(product_b_info, 'description', '')
+            if load_capacity_b == "不明" and description_b:
+                import re
+                load_capacity_match = re.search(r'耐荷重[：:]\s*(\d+[kgkg]*)', description_b)
+                if load_capacity_match:
+                    load_capacity_b = load_capacity_match.group(1)
+            
+            # Add to differences if at least one product has load capacity info
+            if load_capacity_a != "不明" or load_capacity_b != "不明":
+                differences.append({
+                    'category': '耐荷重',
+                    'product_a_value': load_capacity_a,
+                    'product_b_value': load_capacity_b,
+                    'significance': 'high'  # Load capacity is usually important
+                })
+        except Exception as e:
+            print(f"Error extracting load capacity: {e}")
+        
+        # 特徴の違い (Extract from features or description)
+        try:
+            # Try to find features information in the product data
+            features_a = "不明"
+            features_b = "不明"
+            
+            # Check in features field
+            product_features_a = get_attr(product_a_info, 'features', [])
+            if product_features_a:
+                if isinstance(product_features_a, list):
+                    features_a = ", ".join(product_features_a[:3])  # Take first 3 features
+                else:
+                    features_a = str(product_features_a)
+            
+            product_features_b = get_attr(product_b_info, 'features', [])
+            if product_features_b:
+                if isinstance(product_features_b, list):
+                    features_b = ", ".join(product_features_b[:3])  # Take first 3 features
+                else:
+                    features_b = str(product_features_b)
+            
+            # If no features, extract from description
+            if features_a == "不明" and description_a:
+                # Use the full description instead of truncating
+                features_a = clean_html(description_a)
+            
+            if features_b == "不明" and description_b:
+                # Use the full description instead of truncating
+                features_b = clean_html(description_b)
+            
+            # Add to differences if at least one product has features info
+            if features_a != "不明" or features_b != "不明":
+                differences.append({
+                    'category': '特徴',
+                    'product_a_value': features_a,
+                    'product_b_value': features_b,
+                    'significance': 'medium'
+                })
+        except Exception as e:
+            print(f"Error extracting features: {e}")
         
         # 推奨
         recommendation = ""
-        if product_a_info.price < product_b_info.price:
-            recommendation = f"{product_a_info.title}の方が価格が安いため、コストパフォーマンスを重視する場合はこちらがおすすめです。"
-        else:
-            recommendation = f"{product_b_info.title}の方が価格が安いため、コストパフォーマンスを重視する場合はこちらがおすすめです。"
         
-        return jsonify({
-            'product_a': product_a_info.to_dict(),
-            'product_b': product_b_info.to_dict(),
+        # 価格差が大きい場合は安い方を推奨
+        try:
+            if price_percentage > 20:
+                cheaper_product = "商品A" if price_a < price_b else "商品B"
+                recommendation = f"{cheaper_product}の方が{price_percentage:.1f}%安いため、コストパフォーマンスが良いでしょう。"
+            # 価格差が小さい場合は評価が高い方を推奨
+            elif rating_a is not None and rating_b is not None and abs(rating_a - rating_b) > 0.5:
+                better_rated = "商品A" if rating_a > rating_b else "商品B"
+                recommendation = f"{better_rated}の方が評価が高いため、品質が良い可能性があります。"
+            # それ以外の場合は特徴に基づいて推奨
+            else:
+                # 特徴に基づく推奨ロジックを実装
+                recommendation = "両商品は価格と評価が似ていますが、詳細な特徴を比較して選択することをお勧めします。"
+        except Exception as e:
+            print(f"Error generating recommendation: {e}")
+            recommendation = "商品の詳細を比較して、ご自身のニーズに合った方を選択してください。"
+        
+        # 商品情報を辞書に変換
+        def product_to_dict(product):
+            if isinstance(product, dict):
+                return product
+            elif hasattr(product, 'to_dict') and callable(getattr(product, 'to_dict')):
+                return product.to_dict()
+            else:
+                # Convert object attributes to dictionary
+                return {k: v for k, v in product.__dict__.items() if not k.startswith('_')}
+        
+        # 結果を返す
+        result = {
+            'product_a': product_to_dict(product_a_info),
+            'product_b': product_to_dict(product_b_info),
             'differences': differences,
             'recommendation': recommendation
-        })
+        }
+        
+        return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Error comparing products: {e}")
+        return jsonify({"error": f"Error comparing products: {str(e)}"}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -868,47 +1047,20 @@ def find_best_model():
         if not cleaned_model_numbers:
             return jsonify({'error': 'No valid model numbers provided'}), 400
             
-        # First, fetch product information for each model number
+        # Instead of fetching product information for each model number,
+        # directly use Perplexity AI to find the best model
         product_info_list = []
         for model_number in cleaned_model_numbers:
-            # Try to fetch product info from Amazon or other sources
-            try:
-                # Use existing search functionality to get product info
-                amazon_api = AmazonAPI()
-                product_info = amazon_api.search_items(model_number, limit=5)
-                
-                if product_info and len(product_info) > 0:
-                    # Extract relevant product information
-                    product = product_info[0]
-                    # Check if product is a ProductDetail object
-                    if hasattr(product, 'title'):
-                        product_details = {
-                            "model_number": model_number,
-                            "title": product.title,
-                            "features": getattr(product, 'features', []),
-                            "description": getattr(product, 'description', '')
-                        }
-                    else:
-                        # Handle dictionary format
-                        product_details = {
-                            "model_number": model_number,
-                            "title": product.get('title', ''),
-                            "features": product.get('features', []),
-                            "description": product.get('description', '')
-                        }
-                    product_info_list.append(product_details)
-                else:
-                    # If no product info found, just use the model number
-                    product_info_list.append({"model_number": model_number})
-            except Exception as e:
-                print(f"Error fetching product info for {model_number}: {str(e)}")
-                # If error, just use the model number
-                product_info_list.append({"model_number": model_number})
+            product_info_list.append({"model_number": model_number})
         
         # Find the best model that meets the criteria
         result = generator.find_best_model(product_info_list, criteria_prompt)
         
-        return jsonify(result)
+        # Return just the best model number and reason
+        return jsonify({
+            'best_model_number': result.get('best_model_number'),
+            'reason': result.get('reason')
+        })
     except Exception as e:
         print(f"Error in find best model: {str(e)}")
         return jsonify({'error': str(e)}), 500

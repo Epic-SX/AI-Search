@@ -4,6 +4,7 @@ import requests
 import sys
 import json
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
@@ -168,38 +169,117 @@ class BatchKeywordGenerator:
         """
         results = []
         
-        for item in model_numbers:
-            if not item:
-                continue
+        # Create cache directory if it doesn't exist
+        os.makedirs("cache", exist_ok=True)
+        
+        # Process model numbers in batches to improve performance
+        batch_size = 5  # Process 5 model numbers at a time
+        batched_model_numbers = [model_numbers[i:i + batch_size] for i in range(0, len(model_numbers), batch_size)]
+        
+        for batch in batched_model_numbers:
+            batch_results = []
             
-            if isinstance(item, dict):
-                # It's a product info dictionary
-                model_number = item.get("model_number", "")
-                # Clean the model number
-                model_number = self.clean_model_number(model_number)
-                if not model_number.strip():
+            for item in batch:
+                if not item:
                     continue
+                
+                if isinstance(item, dict):
+                    # It's a product info dictionary
+                    model_number = item.get("model_number", "")
+                    # Clean the model number
+                    model_number = self.clean_model_number(model_number)
+                    if not model_number.strip():
+                        continue
+                        
+                    # Update the model number in the dictionary
+                    item["model_number"] = model_number
                     
-                # Update the model number in the dictionary
-                item["model_number"] = model_number
-                
-                keyword = self.generate_keyword(item, custom_prompt)
-                results.append({
-                    "model_number": model_number.strip(),
-                    "keyword": keyword
-                })
-            else:
-                # It's a model number string
-                # Clean the model number
-                model_number = self.clean_model_number(item)
-                if not model_number.strip():
-                    continue
-                
-                keyword = self.generate_keyword(model_number, custom_prompt)
-                results.append({
-                    "model_number": model_number.strip(),
-                    "keyword": keyword
-                })
+                    # Check cache first
+                    cache_key = f"{model_number}-{hash(str(custom_prompt))}"
+                    cache_file = os.path.join("cache", f"keyword_{hash(cache_key)}.json")
+                    
+                    if os.path.exists(cache_file):
+                        try:
+                            with open(cache_file, 'r', encoding='utf-8') as f:
+                                cached_result = json.load(f)
+                                # Check if the cache is still valid (less than 24 hours old)
+                                if 'timestamp' in cached_result:
+                                    cache_time = cached_result.get('timestamp', 0)
+                                    if time.time() - cache_time < 86400:  # 24 hours
+                                        # Remove timestamp from the result
+                                        result_copy = cached_result.copy()
+                                        if 'timestamp' in result_copy:
+                                            del result_copy['timestamp']
+                                        batch_results.append(result_copy)
+                                        continue
+                        except Exception as e:
+                            print(f"Error reading cache: {e}")
+                    
+                    keyword = self.generate_keyword(item, custom_prompt)
+                    result = {
+                        "model_number": model_number.strip(),
+                        "keyword": keyword,
+                        "timestamp": time.time()
+                    }
+                    
+                    # Save to cache
+                    with open(cache_file, 'w', encoding='utf-8') as f:
+                        json.dump(result, f, ensure_ascii=False, indent=2)
+                    
+                    # Remove timestamp from the result
+                    result_copy = result.copy()
+                    if 'timestamp' in result_copy:
+                        del result_copy['timestamp']
+                    
+                    batch_results.append(result_copy)
+                else:
+                    # It's a model number string
+                    # Clean the model number
+                    model_number = self.clean_model_number(item)
+                    if not model_number.strip():
+                        continue
+                    
+                    # Check cache first
+                    cache_key = f"{model_number}-{hash(str(custom_prompt))}"
+                    cache_file = os.path.join("cache", f"keyword_{hash(cache_key)}.json")
+                    
+                    if os.path.exists(cache_file):
+                        try:
+                            with open(cache_file, 'r', encoding='utf-8') as f:
+                                cached_result = json.load(f)
+                                # Check if the cache is still valid (less than 24 hours old)
+                                if 'timestamp' in cached_result:
+                                    cache_time = cached_result.get('timestamp', 0)
+                                    if time.time() - cache_time < 86400:  # 24 hours
+                                        # Remove timestamp from the result
+                                        result_copy = cached_result.copy()
+                                        if 'timestamp' in result_copy:
+                                            del result_copy['timestamp']
+                                        batch_results.append(result_copy)
+                                        continue
+                        except Exception as e:
+                            print(f"Error reading cache: {e}")
+                    
+                    keyword = self.generate_keyword(model_number, custom_prompt)
+                    result = {
+                        "model_number": model_number.strip(),
+                        "keyword": keyword,
+                        "timestamp": time.time()
+                    }
+                    
+                    # Save to cache
+                    with open(cache_file, 'w', encoding='utf-8') as f:
+                        json.dump(result, f, ensure_ascii=False, indent=2)
+                    
+                    # Remove timestamp from the result
+                    result_copy = result.copy()
+                    if 'timestamp' in result_copy:
+                        del result_copy['timestamp']
+                    
+                    batch_results.append(result_copy)
+            
+            # Add batch results to overall results
+            results.extend(batch_results)
         
         return results
         
@@ -212,7 +292,7 @@ class BatchKeywordGenerator:
             criteria_prompt: Prompt describing the criteria for selection
             
         Returns:
-            Dictionary with best_model_number, reason, and all_evaluations
+            Dictionary with best_model_number and reason (without all_evaluations)
         """
         # First, gather product information for all model numbers
         product_info_list = []
@@ -245,47 +325,53 @@ class BatchKeywordGenerator:
         if not product_info_list:
             return {
                 "best_model_number": None,
-                "reason": "No valid model numbers provided",
-                "all_evaluations": []
+                "reason": "No valid model numbers provided"
             }
             
+        # Generate a cache key based on model numbers and criteria
+        cache_key = f"{','.join([item.get('model_number', '') for item in product_info_list])}-{hash(criteria_prompt)}"
+        cache_file = os.path.join("cache", f"best_model_{hash(cache_key)}.json")
+        
+        # Check if we have a cached result
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cached_result = json.load(f)
+                    # Check if the cache is still valid (less than 24 hours old)
+                    if 'timestamp' in cached_result:
+                        cache_time = cached_result.get('timestamp', 0)
+                        if time.time() - cache_time < 86400:  # 24 hours
+                            # Remove timestamp and all_evaluations from the result
+                            result_copy = cached_result.copy()
+                            if 'timestamp' in result_copy:
+                                del result_copy['timestamp']
+                            if 'all_evaluations' in result_copy:
+                                del result_copy['all_evaluations']
+                            return result_copy
+            except Exception as e:
+                print(f"Error reading cache: {e}")
+        
+        # Create a simplified prompt with just model numbers to reduce API call size
+        model_numbers_list = [item.get('model_number', '') for item in product_info_list]
+        
         # Create a prompt to evaluate all models against the criteria
         evaluation_prompt = f"""
-        以下の複数の商品情報から、次の条件に最も合致する商品を1つ選んでください：
+        以下の複数の型番から、次の条件に最も合致する商品を1つ選んでください。
+        各型番について、Amazonや楽天などのECサイトで検索して情報を収集し、条件に照らし合わせて評価してください。
         
         条件：
         {criteria_prompt}
         
-        商品情報：
-        """
+        型番リスト：
+        {', '.join(model_numbers_list)}
         
-        for i, info in enumerate(product_info_list):
-            evaluation_prompt += f"\n商品 {i+1}:\n"
-            evaluation_prompt += f"型番: {info.get('model_number', '')}\n"
-            
-            if "title" in info and info["title"]:
-                evaluation_prompt += f"商品名: {info['title']}\n"
-            
-            if "features" in info and info["features"]:
-                evaluation_prompt += "特徴:\n" + "\n".join([f"- {feature}" for feature in info["features"]]) + "\n"
-            
-            if "description" in info and info["description"]:
-                evaluation_prompt += f"説明: {info['description']}\n"
-        
-        evaluation_prompt += """
         回答形式：
-        {
-          "best_model_index": 選択した商品の番号（1から始まる整数）,
+        {{
           "best_model_number": "選択した商品の型番",
-          "reason": "選択した理由の詳細な説明",
-          "evaluations": [
-            {"model_number": "型番1", "score": 評価スコア（0-10）, "comment": "評価コメント"},
-            {"model_number": "型番2", "score": 評価スコア（0-10）, "comment": "評価コメント"},
-            ...
-          ]
-        }
+          "reason": "選択した理由の詳細な説明"
+        }}
         
-        JSONフォーマットで回答してください。
+        JSONフォーマットで回答してください。評価の詳細は不要です。
         """
         
         try:
@@ -297,7 +383,7 @@ class BatchKeywordGenerator:
                     "messages": [
                         {
                             "role": "system",
-                            "content": "あなたは商品選定の専門家です。複数の商品から条件に最も合致するものを選び、その理由を詳しく説明してください。回答はJSON形式で提供してください。"
+                            "content": "あなたは商品選定の専門家です。複数の型番から条件に最も合致するものを選び、その理由を詳しく説明してください。回答はJSON形式で提供してください。"
                         },
                         {
                             "role": "user",
@@ -305,51 +391,59 @@ class BatchKeywordGenerator:
                         }
                     ],
                     "max_tokens": 1000
-                }
+                },
+                timeout=30  # Add timeout to prevent hanging
             )
             
             if response.status_code == 200:
                 result = response.json()
-                evaluation_result = result["choices"][0]["message"]["content"].strip()
+                ai_response = result["choices"][0]["message"]["content"].strip()
                 
                 # Try to parse the JSON response
                 try:
-                    import json
-                    evaluation_data = json.loads(evaluation_result)
-                    return {
-                        "best_model_number": evaluation_data.get("best_model_number"),
-                        "reason": evaluation_data.get("reason"),
-                        "all_evaluations": evaluation_data.get("evaluations", [])
-                    }
-                except json.JSONDecodeError:
-                    # If JSON parsing fails, try to extract the best model number using regex
-                    import re
-                    best_model_match = re.search(r'"best_model_number":\s*"([^"]+)"', evaluation_result)
-                    reason_match = re.search(r'"reason":\s*"([^"]+)"', evaluation_result)
+                    # Extract JSON from the response (in case there's additional text)
+                    json_match = re.search(r'({.*})', ai_response, re.DOTALL)
+                    if json_match:
+                        ai_response = json_match.group(1)
                     
-                    best_model = best_model_match.group(1) if best_model_match else None
-                    reason = reason_match.group(1) if reason_match else "Could not parse reason from response"
+                    evaluation_result = json.loads(ai_response)
                     
+                    # Add timestamp for caching
+                    evaluation_result['timestamp'] = time.time()
+                    
+                    # Save to cache
+                    os.makedirs("cache", exist_ok=True)
+                    with open(cache_file, 'w', encoding='utf-8') as f:
+                        json.dump(evaluation_result, f, ensure_ascii=False, indent=2)
+                    
+                    # Remove timestamp from the result
+                    result_copy = evaluation_result.copy()
+                    if 'timestamp' in result_copy:
+                        del result_copy['timestamp']
+                    if 'all_evaluations' in result_copy:
+                        del result_copy['all_evaluations']
+                    
+                    return result_copy
+                except json.JSONDecodeError as e:
+                    print(f"Error parsing AI response as JSON: {e}")
+                    print(f"Raw response: {ai_response}")
+                    # Return a basic response with the raw AI text
                     return {
-                        "best_model_number": best_model,
-                        "reason": reason,
-                        "all_evaluations": [],
-                        "raw_response": evaluation_result
+                        "best_model_number": model_numbers_list[0] if model_numbers_list else None,
+                        "reason": f"Error parsing AI response: {ai_response}"
                     }
             else:
                 print(f"API error: {response.status_code} - {response.text}")
                 return {
-                    "best_model_number": None,
-                    "reason": f"API error: {response.status_code}",
-                    "all_evaluations": []
+                    "best_model_number": model_numbers_list[0] if model_numbers_list else None,
+                    "reason": f"API error: {response.status_code}"
                 }
                 
         except Exception as e:
             print(f"Error in API call: {e}")
             return {
-                "best_model_number": None,
-                "reason": f"Error: {str(e)}",
-                "all_evaluations": []
+                "best_model_number": model_numbers_list[0] if model_numbers_list else None,
+                "reason": f"Error: {str(e)}"
             }
 
 def main():

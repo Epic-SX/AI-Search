@@ -29,9 +29,9 @@ except ImportError:
     AMAZON_SDK_AVAILABLE = False
 
 # Constants for retry logic
-MAX_RETRIES = 3
+MAX_RETRIES = 2
 RETRY_DELAY_BASE = 1.0  # Base delay in seconds
-RETRY_DELAY_MAX = 10.0  # Maximum delay in seconds
+RETRY_DELAY_MAX = 5.0  # Maximum delay in seconds
 
 # List of rotating User-Agents
 USER_AGENTS = [
@@ -346,18 +346,33 @@ class AmazonAPI:
         try:
             print(f"Searching Amazon for: {keywords} (limit: {limit})")
             
+            # Check if we have cached results
+            cached_results = self.get_cached_search(keywords)
+            if cached_results:
+                print(f"Found {len(cached_results)} cached results for {keywords}")
+                return cached_results[:limit]
+            
+            # Check if this is a direct search or looks like a model number
+            direct_search = kwargs.get('direct_search', False)
+            
+            # Check if the keywords look like a model number (contains alphanumeric with dashes)
+            is_model_number = bool(re.match(r'^[A-Za-z0-9]+-?[A-Za-z0-9]+', str(keywords)))
+            
+            # For model numbers, prioritize scraping as PAAPI often fails for these
+            if is_model_number:
+                print(f"Detected model number pattern in '{keywords}', prioritizing scraping")
+                # Try scraping first for model numbers
+                scraped_results = self._scrape_amazon_search(keywords, limit)
+                if scraped_results and len(scraped_results) > 0:
+                    print(f"Found {len(scraped_results)} products via scraping")
+                    # Cache the results
+                    self.cache_search_results(keywords, scraped_results)
+                    return scraped_results[:limit]
+            
             # Check if we have a valid PAAPI client
             if not self.client:
                 print("Amazon PAAPI client not initialized, using fallback implementation")
                 return self._search_amazon_products(keywords, limit)
-            
-            # Check if we have cached results
-            cached_results = self.get_cached_search(keywords)
-            if cached_results:
-                return cached_results[:limit]
-            
-            # Check if this is a direct search
-            direct_search = kwargs.get('direct_search', False)
             
             # Expand search keywords for better results
             expanded_keywords = self._expand_search_keywords(keywords, direct_search)
