@@ -76,6 +76,16 @@ export interface ProductInfo {
     is_fallback?: boolean;
     [key: string]: any;
   };
+  // Added fields for CSV export
+  search_term?: string;
+  brand?: string;
+  manufacturer?: string;
+  model?: string;
+  model_number?: string;
+  jan?: string;
+  jan_code?: string;
+  stock_status?: string;
+  stock_quantity?: number | string;
 }
 
 // 商品比較結果の型定義

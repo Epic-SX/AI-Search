@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Box, Typography, Divider, Tabs, Tab, Paper, Tooltip } from '@mui/material';
+import { Box, Typography, Divider, Tabs, Tab, Paper, Tooltip, Button } from '@mui/material';
 import SearchResults from './SearchResults';
 import { SearchResult } from '@/types';
+import { FaDownload } from 'react-icons/fa';
+import { downloadMultipleProductsAsCSV } from '@/utils/csvExport';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -31,9 +33,10 @@ function TabPanel(props: TabPanelProps) {
 
 interface BatchSearchResultsProps {
   results: SearchResult[];
+  hasErrors?: boolean;
 }
 
-const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results }) => {
+const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results, hasErrors = false }) => {
   const [activeTab, setActiveTab] = useState(0);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
@@ -103,13 +106,66 @@ const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results }) => {
       (result.keywords && result.keywords.length > 0 ? result.keywords[0] : `検索 ${index + 1}`);
   };
 
+  const handleDownloadAll = () => {
+    const allProducts = extractAllProducts(results);
+    
+    if (allProducts.length === 0) {
+      alert('ダウンロードするデータがありません。');
+      return;
+    }
+    
+    // Create a function that returns store name (for compatibility with downloadMultipleProductsAsCSV)
+    const getDisplayStoreName = (product: any) => {
+      if (product.source === 'amazon') return 'Amazon';
+      if (product.source === 'rakuten') return '楽天市場';
+      if (product.source === 'yahoo') return 'Yahoo!ショッピング';
+      return product.store || '不明なストア';
+    };
+    
+    // Download all products as CSV
+    downloadMultipleProductsAsCSV(allProducts, getDisplayStoreName);
+  };
+
+  // Extract all product info from all search results
+  const extractAllProducts = (results: SearchResult[]) => {
+    const allProducts = [];
+    
+    for (const result of results) {
+      if (result.detailed_products && result.detailed_products.length > 0) {
+        for (const product of result.detailed_products) {
+          // Add the search term as a property so we know which search it came from
+          allProducts.push({
+            ...product,
+            search_term: result.product_info || (result.keywords && result.keywords.length > 0 ? result.keywords[0] : '')
+          });
+        }
+      }
+    }
+    
+    return allProducts;
+  };
+
   return (
     <Box sx={{ mt: 4 }}>
-      <Typography variant="h5" gutterBottom>
-        一括検索結果
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h5">
+          一括検索結果
+        </Typography>
+        
+        {/* Download All Results button */}
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<FaDownload />}
+          onClick={handleDownloadAll}
+          sx={{ ml: 2 }}
+        >
+          全結果をダウンロード ({results.length}件)
+        </Button>
+      </Box>
+      
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        {results.length}件の検索結果があります
+        {results.length}件の検索結果があります{hasErrors ? ' (一部のデータに取得エラーが発生しました)' : ''}
       </Typography>
       
       {/* Display just numbered circles with tooltips for model numbers */}

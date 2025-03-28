@@ -157,8 +157,8 @@ export default function SearchForm({
       return;
     }
     
-    if (productList.length > 500) {
-      setError('一度に検索できる型番は500個までです');
+    if (productList.length > 1000) {
+      setError('一度に検索できる型番は1000個までです');
       return;
     }
     
@@ -226,8 +226,8 @@ export default function SearchForm({
         return;
       }
       
-      if (inputLines.length > 500) {
-        setError('一度に処理できる型番は500個までです');
+      if (inputLines.length > 1000) {
+        setError('一度に処理できる型番は1000個までです');
         return;
       }
 

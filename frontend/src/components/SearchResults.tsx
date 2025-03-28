@@ -551,6 +551,8 @@ export default function SearchResults({ results }: SearchResultsProps) {
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             ※ 詳細情報から各ECサイトの最安値商品を表示しています。
+            <br />
+            ※ APIを通じて取得できないデータは除外されています。
           </Typography>
           <TableContainer component={Paper} sx={{ boxShadow: 1, border: '1px solid #e0e0e0' }}>
             <Table sx={{ minWidth: 650 }}>
@@ -849,6 +851,8 @@ export default function SearchResults({ results }: SearchResultsProps) {
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             ※ 各ECサイトの検索結果を表示しています。商品が見つからない場合は、検索キーワードを変更してみてください。
+            <br />
+            ※ APIを通じて取得できないデータは除外されています。
           </Typography>
           <Grid container spacing={2}>
             {/* Amazon Column */}
@@ -895,6 +899,9 @@ export default function SearchResults({ results }: SearchResultsProps) {
                             '&:last-child': { mb: 0 },
                             position: 'relative',
                             border: isSelected ? '2px solid #FF9900' : '1px solid #eee',
+                            minHeight: '180px',
+                            display: 'flex',
+                            flexDirection: 'column',
                             '&:hover': {
                               boxShadow: '0 3px 8px rgba(0,0,0,0.15)',
                               cursor: 'pointer'
@@ -934,7 +941,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
                               }}
                             />
                           </Box>
-                          <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                          <Box sx={{ display: 'flex', gap: 2, mb: 1, flex: '1 0 auto' }}>
                             <Box
                               component="img"
                               src={imageErrors[`amazon-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
@@ -950,19 +957,32 @@ export default function SearchResults({ results }: SearchResultsProps) {
                               }}
                             />
                             <Box sx={{ flex: 1 }}>
-                              <Typography 
-                                variant="subtitle1" 
-                                sx={{ fontWeight: 'medium', mb: 1, display: 'flex', alignItems: 'center' }}
-                              >
-                                {product.title}
-                                {renderJanBadge(product)}
-                              </Typography>
+                              <Tooltip title={product.title || ''} arrow placement="top">
+                                <Typography 
+                                  variant="subtitle2" 
+                                  sx={{ 
+                                    fontWeight: 'medium', 
+                                    mb: 1,
+                                    display: '-webkit-box', 
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    lineHeight: 1.2,
+                                    height: '2.4em',
+                                    fontSize: '0.875rem'
+                                  }}
+                                >
+                                  {product.title}
+                                  {renderJanBadge(product)}
+                                </Typography>
+                              </Tooltip>
                               <Typography variant="h6" color="#FF9900" fontWeight="bold">
                                 {formatPrice(product.price)}円
                               </Typography>
                             </Box>
                           </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
                             <Button
                               component="a"
                               href={product.url}
@@ -1062,6 +1082,9 @@ export default function SearchResults({ results }: SearchResultsProps) {
                           '&:last-child': { mb: 0 },
                           position: 'relative',
                           border: isSelected ? '2px solid #BF0000' : '1px solid #eee',
+                          minHeight: '180px',
+                          display: 'flex',
+                          flexDirection: 'column',
                           '&:hover': {
                             boxShadow: '0 3px 8px rgba(0,0,0,0.15)',
                             cursor: 'pointer'
@@ -1101,7 +1124,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
                             }}
                           />
                         </Box>
-                        <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 2, mb: 1, flex: '1 0 auto' }}>
                           <SimpleRakutenImage
                             imageUrl={product.image_url || ''}
                             title={product.title}
@@ -1109,19 +1132,32 @@ export default function SearchResults({ results }: SearchResultsProps) {
                             width={80}
                           />
                           <Box sx={{ flex: 1 }}>
-                            <Typography 
-                              variant="subtitle1" 
-                              sx={{ fontWeight: 'medium', mb: 1, display: 'flex', alignItems: 'center' }}
-                            >
-                              {product.title}
-                              {renderJanBadge(product)}
-                            </Typography>
+                            <Tooltip title={product.title || ''} arrow placement="top">
+                              <Typography 
+                                variant="subtitle2" 
+                                sx={{ 
+                                  fontWeight: 'medium', 
+                                  mb: 1,
+                                  display: '-webkit-box', 
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  lineHeight: 1.2,
+                                  height: '2.4em',
+                                  fontSize: '0.875rem'
+                                }}
+                              >
+                                {product.title}
+                                {renderJanBadge(product)}
+                              </Typography>
+                            </Tooltip>
                             <Typography variant="h6" color="#BF0000" fontWeight="bold">
                               {formatPrice(product.price)}円
                             </Typography>
                           </Box>
                         </Box>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
                           <Button
                             component="a"
                             href={product.url}
@@ -1223,6 +1259,9 @@ export default function SearchResults({ results }: SearchResultsProps) {
                           '&:last-child': { mb: 0 },
                           position: 'relative',
                           border: isSelected ? '2px solid #6001D2' : '1px solid #eee',
+                          minHeight: '180px',
+                          display: 'flex',
+                          flexDirection: 'column',
                           '&:hover': {
                             boxShadow: '0 3px 8px rgba(0,0,0,0.15)',
                             cursor: 'pointer'
@@ -1262,7 +1301,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
                             }}
                           />
                         </Box>
-                        <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 2, mb: 1, flex: '1 0 auto' }}>
                           <Box
                             component="img"
                             src={imageErrors[`yahoo-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
@@ -1278,19 +1317,32 @@ export default function SearchResults({ results }: SearchResultsProps) {
                             }}
                           />
                           <Box sx={{ flex: 1 }}>
-                            <Typography 
-                              variant="subtitle1" 
-                              sx={{ fontWeight: 'medium', mb: 1, display: 'flex', alignItems: 'center' }}
-                            >
-                              {product.title}
-                              {renderJanBadge(product)}
-                            </Typography>
+                            <Tooltip title={product.title || ''} arrow placement="top">
+                              <Typography 
+                                variant="subtitle2" 
+                                sx={{ 
+                                  fontWeight: 'medium', 
+                                  mb: 1,
+                                  display: '-webkit-box', 
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  lineHeight: 1.2,
+                                  height: '2.4em',
+                                  fontSize: '0.875rem'
+                                }}
+                              >
+                                {product.title}
+                                {renderJanBadge(product)}
+                              </Typography>
+                            </Tooltip>
                             <Typography variant="h6" color="#6001D2" fontWeight="bold">
                               {formatPrice(product.price)}円
                             </Typography>
                           </Box>
                         </Box>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
                           <Button
                             component="a"
                             href={product.url}

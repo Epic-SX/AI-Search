@@ -14,6 +14,8 @@ from src.api.rakuten_api import rakuten_api
 from src.api.yahoo_api import yahoo_api
 from src.tools.batch_keyword_generator import BatchKeywordGenerator
 from src.api.perplexity_client import perplexity_client
+import uuid
+import time
 
 app = Flask(__name__)
 # Configure CORS properly with specific settings
@@ -57,6 +59,9 @@ amazon_region = "ap-northeast-1"
 
 # Initialize the BatchKeywordGenerator
 batch_keyword_generator = BatchKeywordGenerator()
+
+# Add a dictionary to track batch search statuses
+batch_search_status = {}
 
 def select_cheapest_highest_ranked_products(products, max_products=10):
     """
@@ -875,6 +880,16 @@ def generate_ai_keywords(model_number, custom_prompt=None):
         cleaned_model = re.sub(r'^\d+\s+', '', model_number.strip())
         return cleaned_model  # Fallback to using the model number directly
 
+@app.route('/api/search/status/<batch_id>', methods=['GET'])
+def check_batch_status(batch_id):
+    """
+    バッチ検索のステータスを確認するエンドポイント
+    """
+    if batch_id not in batch_search_status:
+        return jsonify({'error': 'Batch ID not found'}), 404
+        
+    return jsonify(batch_search_status[batch_id])
+
 @app.route('/api/search/detailed-batch', methods=['POST'])
 def detailed_batch_search():
     """
@@ -893,6 +908,17 @@ def detailed_batch_search():
         # 商品情報リストが大きすぎる場合はエラー
         if len(product_info_list) > 500:
             return jsonify({'error': 'Too many items. Maximum 500 items allowed.'}), 400
+        
+        # Generate a unique batch ID for status tracking
+        batch_id = str(uuid.uuid4())
+        batch_search_status[batch_id] = {
+            'total': len(product_info_list),
+            'processed': 0,
+            'completed': False,
+            'has_errors': False,
+            'start_time': time.time(),
+            'results': []
+        }
         
         results = []
         
@@ -920,6 +946,7 @@ def detailed_batch_search():
                             price_results = price_comparison.compare_prices(product_info)
                     except Exception as e:
                         print(f"Error in price comparison for '{product_info}': {e}")
+                        batch_search_status[batch_id]['has_errors'] = True
                     
                     # 詳細な商品情報を取得
                     detailed_products = []
@@ -943,28 +970,74 @@ def detailed_batch_search():
                         
                     except Exception as e:
                         print(f"Error getting detailed products for '{product_info}': {e}")
+                        batch_search_status[batch_id]['has_errors'] = True
                     
-                    results.append({
+                    result = {
                         'product_info': product_info,
                         'keywords': keywords,
                         'price_comparison': price_results,
                         'detailed_products': [p.to_dict() if hasattr(p, 'to_dict') else (p if isinstance(p, dict) else (p.__dict__ if hasattr(p, '__dict__') else {})) for p in detailed_products],
                         'error': None
-                    })
+                    }
+                    
+                    results.append(result)
+                    batch_search_status[batch_id]['results'].append(result)
+                    
                 except Exception as e:
                     print(f"Error processing '{product_info}': {e}")
-                    results.append({
+                    error_result = {
                         'product_info': product_info,
                         'keywords': [product_info],
                         'price_comparison': [],
                         'detailed_products': [],
                         'error': str(e)
-                    })
+                    }
+                    results.append(error_result)
+                    batch_search_status[batch_id]['results'].append(error_result)
+                    batch_search_status[batch_id]['has_errors'] = True
+                
+                # Update processed count
+                batch_search_status[batch_id]['processed'] += 1
         
-        return jsonify(results)
+        # Mark as completed
+        batch_search_status[batch_id]['completed'] = True
+        batch_search_status[batch_id]['end_time'] = time.time()
+        
+        # Add batch ID to the response for status checking
+        response = {
+            'batch_id': batch_id,
+            'results': results
+        }
+        
+        # Clean up old statuses (older than 1 hour)
+        cleanup_old_statuses()
+        
+        return jsonify(response)
     except Exception as e:
         print(f"Error in detailed batch search: {e}")
+        # If a batch ID was created, update its status to show failure
+        if 'batch_id' in locals():
+            batch_search_status[batch_id]['completed'] = True
+            batch_search_status[batch_id]['has_errors'] = True
+            batch_search_status[batch_id]['error'] = str(e)
+            
         return jsonify({'error': str(e)}), 500
+
+def cleanup_old_statuses():
+    """
+    Clean up status entries older than 1 hour
+    """
+    current_time = time.time()
+    to_delete = []
+    
+    for batch_id, status in batch_search_status.items():
+        if status.get('completed', False) and 'start_time' in status:
+            # If completed and older than 1 hour
+            if current_time - status['start_time'] > 3600:
+                to_delete.append(batch_id)
+    
+    for batch_id in to_delete:
+        del batch_search_status[batch_id]
 
 @app.route('/api/search/batch-keywords', methods=['POST'])
 def batch_keywords():

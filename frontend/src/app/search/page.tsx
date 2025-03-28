@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Container, Typography, Box, CircularProgress, Alert } from '@mui/material';
 import SearchForm from '@/components/SearchForm';
 import SearchResults from '@/components/SearchResults';
 import BatchSearchResults from '@/components/BatchSearchResults';
-import { searchByProductInfo, batchSearchByProductInfo, enhanceKeywords, findBestModel } from '@/api';
+import { searchByProductInfo, batchSearchByProductInfo, enhanceKeywords, findBestModel, checkBatchSearchStatus } from '@/api';
 import { toast } from 'react-hot-toast';
 import { SearchResult } from '@/types';
 import CustomBreadcrumbs from '@/components/CustomBreadcrumbs';
@@ -19,6 +19,91 @@ export default function SearchPage() {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isBestModelMode, setIsBestModelMode] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number, total: number } | null>(null);
+  const [estimatedTime, setEstimatedTime] = useState<number | null>(null);
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [hasErrors, setHasErrors] = useState(false);
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [statusPolling, setStatusPolling] = useState<NodeJS.Timeout | null>(null);
+
+  // Calculate estimated time remaining based on progress
+  useEffect(() => {
+    if (loading && batchProgress && startTime) {
+      const elapsedTime = (Date.now() - startTime) / 1000; // in seconds
+      const itemsProcessed = batchProgress.current;
+      
+      if (itemsProcessed > 0) {
+        const timePerItem = elapsedTime / itemsProcessed;
+        const itemsRemaining = batchProgress.total - itemsProcessed;
+        const estimatedTimeRemaining = Math.ceil(timePerItem * itemsRemaining);
+        
+        setEstimatedTime(estimatedTimeRemaining);
+      }
+    } else {
+      setEstimatedTime(null);
+    }
+  }, [batchProgress, loading, startTime]);
+
+  // Set up polling for batch status updates
+  useEffect(() => {
+    if (batchId && loading) {
+      // Start polling for status updates
+      const intervalId = setInterval(async () => {
+        try {
+          const status = await checkBatchSearchStatus(batchId);
+          
+          // Update progress
+          if (status.total && status.processed) {
+            setBatchProgress({
+              current: status.processed,
+              total: status.total
+            });
+          }
+          
+          // Check if completed
+          if (status.completed) {
+            setLoading(false);
+            setBatchProgress(null);
+            setEstimatedTime(null);
+            
+            // Update results if available
+            if (status.results && status.results.length > 0) {
+              // Normalize results to ensure detailed_products is always an array
+              const normalizedResults = status.results.map((result: SearchResult) => ({
+                ...result,
+                detailed_products: Array.isArray(result.detailed_products) ? result.detailed_products : []
+              }));
+              setBatchResults(normalizedResults);
+            }
+            
+            // Check for errors
+            if (status.has_errors) {
+              setHasErrors(true);
+              toast.error('一部のデータにエラーが発生しました');
+            }
+            
+            // Clear polling
+            clearInterval(intervalId);
+            setStatusPolling(null);
+          }
+        } catch (error) {
+          console.error('Error polling batch status:', error);
+        }
+      }, 2000); // Poll every 2 seconds
+      
+      setStatusPolling(intervalId);
+      
+      // Clean up on unmount
+      return () => {
+        if (intervalId) {
+          clearInterval(intervalId);
+        }
+      };
+    } else if (!loading && statusPolling) {
+      // Clean up polling when loading stops
+      clearInterval(statusPolling);
+      setStatusPolling(null);
+    }
+  }, [batchId, loading]);
 
   // Handle single product search
   const handleSingleSearch = async (productInfo: string, directSearch: boolean) => {
@@ -27,6 +112,7 @@ export default function SearchPage() {
     setIsBestModelMode(false);
     setBatchResults([]);
     setBestModelResult(null);
+    setHasErrors(false);
     
     // If empty, just reset the results
     if (!productInfo) {
@@ -54,15 +140,18 @@ export default function SearchPage() {
     setIsBestModelMode(false);
     setSearchResults(null);
     setBestModelResult(null);
+    setHasErrors(false);
+    setBatchResults([]);
+    setBatchId(null);
     
     // If empty, just reset the results
     if (!productInfoList.length) {
-      setBatchResults([]);
       return;
     }
     
     setLoading(true);
     setBatchProgress({ current: 0, total: productInfoList.length });
+    setStartTime(Date.now());
     
     try {
       if (useAI) {
@@ -73,13 +162,39 @@ export default function SearchPage() {
           // Process in chunks of 20
           const chunkSize = 20;
           let allResults: SearchResult[] = [];
+          let errorOccurred = false;
           
           for (let i = 0; i < productInfoList.length; i += chunkSize) {
             const chunk = productInfoList.slice(i, i + chunkSize);
-            const results = await batchSearchByProductInfo(chunk, directSearch);
-            allResults = [...allResults, ...results];
+            try {
+              const results = await batchSearchByProductInfo(chunk, directSearch);
+              
+              // Check if we got a batch ID from localStorage (set by the API function)
+              const storedBatchId = localStorage.getItem('last_batch_id');
+              if (storedBatchId && i === 0) {
+                setBatchId(storedBatchId);
+                // First chunk has batch ID, let the polling handle updates
+                break;
+              }
+              
+              // Check for errors in the results
+              for (const result of results) {
+                if (result.error) {
+                  errorOccurred = true;
+                  break;
+                }
+              }
+              
+              allResults = [...allResults, ...results];
+            } catch (error) {
+              console.error(`Error processing chunk ${i/chunkSize + 1}:`, error);
+              errorOccurred = true;
+              
+              // Display error message but continue processing
+              toast.error(`チャンク ${i/chunkSize + 1} の処理中にエラーが発生しましたが、処理を続行します`);
+            }
             
-            // Update progress
+            // Update progress regardless of errors
             setBatchProgress({ 
               current: Math.min(i + chunkSize, productInfoList.length), 
               total: productInfoList.length 
@@ -87,42 +202,141 @@ export default function SearchPage() {
             
             // Update partial results to show progress
             setBatchResults(allResults);
+            
+            if (errorOccurred) {
+              setHasErrors(true);
+            }
           }
         } else {
           // For smaller batches, process all at once
-          const results = await batchSearchByProductInfo(productInfoList, directSearch);
-          setBatchResults(results);
+          try {
+            const results = await batchSearchByProductInfo(productInfoList, directSearch);
+            
+            // Add debug logging
+            console.log("Batch search API response:", results);
+            if (results && results.length > 0) {
+              console.log("First result detailed_products:", 
+                results[0].detailed_products ? 
+                `${results[0].detailed_products.length} items` : 
+                'undefined or empty');
+            }
+            
+            // Normalize results to ensure detailed_products is always an array
+            const normalizedResults = results.map((result: SearchResult) => ({
+              ...result,
+              detailed_products: Array.isArray(result.detailed_products) ? result.detailed_products : []
+            }));
+            
+            // Check if we got a batch ID from localStorage
+            const storedBatchId = localStorage.getItem('last_batch_id');
+            if (storedBatchId) {
+              setBatchId(storedBatchId);
+              // Let the polling handle updates
+              return;
+            }
+            
+            // Check for errors in the results
+            let errorOccurred = false;
+            for (const result of normalizedResults) {
+              if (result.error) {
+                errorOccurred = true;
+                break;
+              }
+            }
+            
+            if (errorOccurred) {
+              setHasErrors(true);
+            }
+            
+            setBatchResults(normalizedResults);
+          } catch (error) {
+            console.error('Batch search error:', error);
+            toast.error('一括検索中にエラーが発生しました');
+            setHasErrors(true);
+          }
+          
           setBatchProgress({ current: productInfoList.length, total: productInfoList.length });
         }
       }
     } catch (error) {
       console.error('Batch search error:', error);
-      toast.error('一括検索中にエラーが発生しました');
-      setBatchResults([]);
+      toast.error('一括検索中にエラーが発生しましたが、部分的な結果を表示します');
+      setHasErrors(true);
     } finally {
-      setLoading(false);
-      setBatchProgress(null);
+      // Only set loading to false if we're not using polling
+      if (!batchId) {
+        setLoading(false);
+        setBatchProgress(null);
+        setEstimatedTime(null);
+      }
     }
   };
 
-  // Enhanced batch search with AI
+  // Enhanced batch search with AI enhancement
   const enhancedBatchSearch = async (productInfoList: string[], directSearch: boolean) => {
     try {
-      // First, enhance the keywords
-      setBatchProgress({ current: 0, total: productInfoList.length * 2 }); // Double the steps for AI enhancement
-      const enhancedKeywords = await enhanceKeywords(productInfoList);
-      setBatchProgress({ current: productInfoList.length, total: productInfoList.length * 2 });
+      const results = await enhanceKeywords(productInfoList, "一括検索用");
       
-      // Then, search with the enhanced keywords
-      const results = await batchSearchByProductInfo(enhancedKeywords, directSearch);
-      setBatchResults(results);
-      setBatchProgress({ current: productInfoList.length * 2, total: productInfoList.length * 2 });
+      if (!results || !results.results || !Array.isArray(results.results)) {
+        throw new Error('Invalid response from keyword enhancement');
+      }
+      
+      // Process results in chunks
+      const enhancedResults: SearchResult[] = [];
+      const chunkSize = 10;
+      let errorOccurred = false;
+      
+      for (let i = 0; i < results.results.length; i += chunkSize) {
+        const chunk = results.results.slice(i, i + chunkSize);
+        
+        // Process each item in the chunk
+        for (let j = 0; j < chunk.length; j++) {
+          const item = chunk[j];
+          const originalQuery = productInfoList[i + j] || item.model_number;
+          
+          try {
+            // Use the enhanced keywords for search
+            const searchResult = await searchByProductInfo(item.enhanced_keywords || item.model_number, directSearch);
+            
+            // Add original query to the result
+            enhancedResults.push({
+              ...searchResult,
+              product_info: originalQuery,
+              keywords: [item.enhanced_keywords || item.model_number]
+            });
+          } catch (error) {
+            console.error(`Error searching for enhanced keywords for ${originalQuery}:`, error);
+            errorOccurred = true;
+            
+            // Add a placeholder result with error
+            enhancedResults.push({
+              product_info: originalQuery,
+              keywords: [item.enhanced_keywords || item.model_number],
+              error: `検索エラー: ${error}`,
+              price_comparison: [],
+              detailed_products: []
+            });
+          }
+          
+          // Update progress
+          setBatchProgress({
+            current: i + j + 1,
+            total: results.results.length
+          });
+          
+          // Update results as we go
+          setBatchResults([...enhancedResults]);
+        }
+      }
+      
+      if (errorOccurred) {
+        setHasErrors(true);
+      }
+      
     } catch (error) {
       console.error('Enhanced batch search error:', error);
-      // Fallback to regular batch search
-      toast.error('AIによるキーワード最適化に失敗しました。通常の検索を実行します。');
-      const results = await batchSearchByProductInfo(productInfoList, directSearch);
-      setBatchResults(results);
+      toast.error('AIキーワード強化処理中にエラーが発生しました');
+      setHasErrors(true);
     }
   };
 
@@ -203,6 +417,13 @@ export default function SearchPage() {
                 <Typography variant="body2" color="text.secondary">
                   処理中... {batchProgress.current}/{batchProgress.total}
                 </Typography>
+                {estimatedTime !== null && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    推定残り時間: {estimatedTime < 60 
+                      ? `${estimatedTime}秒` 
+                      : `${Math.floor(estimatedTime / 60)}分${estimatedTime % 60}秒`}
+                  </Typography>
+                )}
                 <Box sx={{ width: '100%', mt: 1 }}>
                   <Box
                     sx={{
@@ -235,15 +456,16 @@ export default function SearchPage() {
         )}
         
         {!loading && isBatchMode && batchResults.length > 0 && (
-          <BatchSearchResults results={batchResults} />
+          <BatchSearchResults results={batchResults} hasErrors={hasErrors} />
         )}
         
         {loading && isBatchMode && batchResults.length > 0 && (
           <Box sx={{ mt: 4, opacity: 0.7 }}>
             <Alert severity="info" sx={{ mb: 2 }}>
               一部の結果を表示しています。すべての検索が完了するまでお待ちください。
+              {hasErrors && ' 一部のデータにエラーが発生していますが、処理を続行しています。'}
             </Alert>
-            <BatchSearchResults results={batchResults} />
+            <BatchSearchResults results={batchResults} hasErrors={hasErrors} />
           </Box>
         )}
         
@@ -260,32 +482,8 @@ export default function SearchPage() {
               {bestModelResult.reason}
             </Typography>
             
-            {bestModelResult.all_evaluations && bestModelResult.all_evaluations.length > 0 && (
-              <>
-                <Typography variant="h6" gutterBottom>
-                  全モデルの評価:
-                </Typography>
-                {bestModelResult.all_evaluations.map((evaluation, index) => (
-                  <Box key={index} sx={{ mb: 2, p: 2, bgcolor: evaluation.model_number === bestModelResult.best_model_number ? '#f0f7ff' : '#f5f5f5' }}>
-                    <Typography variant="subtitle1" fontWeight="bold">
-                      {evaluation.model_number} - スコア: {evaluation.score}/10
-                    </Typography>
-                    <Typography variant="body2">
-                      {evaluation.comment}
-                    </Typography>
-                  </Box>
-                ))}
-              </>
-            )}
-            
-            {/* Display search results for the best model if available */}
-            {searchResults && (
-              <Box sx={{ mt: 4 }}>
-                <Typography variant="h5" gutterBottom sx={{ bgcolor: '#f0f7ff', p: 2, borderRadius: 1 }}>
-                  最適なモデルの検索結果
-                </Typography>
-                <SearchResults results={searchResults} />
-              </Box>
+            {bestModelResult.search_results && (
+              <SearchResults results={bestModelResult.search_results} />
             )}
           </Box>
         )}
