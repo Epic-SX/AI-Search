@@ -486,7 +486,35 @@ export default function SearchResults({ results }: SearchResultsProps) {
     
     return '不明なショップ';
   };
-  
+
+  // Inside the getDisplayStoreName function, add a check for JAN code
+  const isJanCodeMatch = (product: ProductInfo) => {
+    if (product.additional_info && product.additional_info.searched_by_jan) {
+      return true;
+    }
+    return false;
+  };
+
+  // Add this function to render the JAN badge
+  const renderJanBadge = (product: ProductInfo) => {
+    if (isJanCodeMatch(product)) {
+      return (
+        <Chip 
+          label="JAN一致" 
+          size="small" 
+          color="success" 
+          sx={{ 
+            ml: 1, 
+            height: '20px',
+            fontSize: '0.7rem',
+            fontWeight: 'bold'
+          }} 
+        />
+      );
+    }
+    return null;
+  };
+
   // Render the component
   return (
     <Box sx={{ mt: 4 }}>
@@ -507,6 +535,13 @@ export default function SearchResults({ results }: SearchResultsProps) {
             />
           ))}
         </Box>
+        {results.jan_code && (
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              <strong>JAN Code:</strong> {results.jan_code} を使用して検索しました
+            </Typography>
+          </Box>
+        )}
       </Box>
 
       {results.detailed_products && results.detailed_products.length > 0 && (
@@ -517,15 +552,16 @@ export default function SearchResults({ results }: SearchResultsProps) {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             ※ 詳細情報から各ECサイトの最安値商品を表示しています。
           </Typography>
-          <TableContainer component={Paper}>
-            <Table>
+          <TableContainer component={Paper} sx={{ boxShadow: 1, border: '1px solid #e0e0e0' }}>
+            <Table sx={{ minWidth: 650 }}>
               <TableHead>
-                <TableRow>
-                  <TableCell>ショップ</TableCell>
-                  <TableCell>商品名</TableCell>
-                  <TableCell>価格</TableCell>
-                  <TableCell>画像</TableCell>
-                  <TableCell>リンク</TableCell>
+                <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', minWidth: '90px' }}>ランキング</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', minWidth: '100px' }}>ショップ</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', width: '40%' }}>商品名</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', minWidth: '120px' }}>価格（税込）</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', minWidth: '80px' }}>画像</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', minWidth: '100px' }}>リンク</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -559,9 +595,86 @@ export default function SearchResults({ results }: SearchResultsProps) {
                     }
                   }
                   
+                  // Generate ranking badge based on index
+                  const getRankingBadge = (position: number) => {
+                    if (position === 0) {
+                      return (
+                        <Box sx={{ 
+                          display: 'inline-flex',
+                          justifyContent: 'center',
+                          alignItems: 'center', 
+                          bgcolor: 'gold', 
+                          color: 'black', 
+                          fontWeight: 'bold',
+                          borderRadius: '4px',
+                          px: 1.5,
+                          py: 0.5,
+                          minWidth: '40px',
+                          textAlign: 'center'
+                        }}>
+                          1位
+                        </Box>
+                      );
+                    } else if (position === 1) {
+                      return (
+                        <Box sx={{ 
+                          display: 'inline-flex',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          bgcolor: 'silver', 
+                          color: 'black', 
+                          fontWeight: 'bold',
+                          borderRadius: '4px',
+                          px: 1.5,
+                          py: 0.5,
+                          minWidth: '40px',
+                          textAlign: 'center'
+                        }}>
+                          2位
+                        </Box>
+                      );
+                    } else if (position === 2) {
+                      return (
+                        <Box sx={{ 
+                          display: 'inline-flex',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          bgcolor: '#cd7f32', 
+                          color: 'white', 
+                          fontWeight: 'bold',
+                          borderRadius: '4px',
+                          px: 1.5,
+                          py: 0.5,
+                          minWidth: '40px',
+                          textAlign: 'center'
+                        }}>
+                          3位
+                        </Box>
+                      );
+                    } else {
+                      return (
+                        <Typography variant="body2" sx={{ 
+                          color: 'text.secondary',
+                          display: 'inline-flex',
+                          justifyContent: 'center',
+                          minWidth: '40px',
+                          textAlign: 'center'
+                        }}>
+                          {position + 1}位
+                        </Typography>
+                      );
+                    }
+                  };
+                  
                   return (
-                  <TableRow key={index}>
-                    <TableCell>
+                  <TableRow key={index} sx={{ 
+                    '&:nth-of-type(odd)': { backgroundColor: '#f9f9f9' },
+                    '&:hover': { backgroundColor: '#f5f5f5' }
+                  }}>
+                    <TableCell sx={{ verticalAlign: 'middle' }}>
+                      {getRankingBadge(index)}
+                    </TableCell>
+                    <TableCell sx={{ verticalAlign: 'middle' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         {getStoreIcon(displayStoreName) === 'Amazon' && <FaAmazon size={24} color="#FF9900" />}
                         {getStoreIcon(displayStoreName) === 'Rakuten' && <SiRakuten size={24} color="#BF0000" />}
@@ -571,19 +684,33 @@ export default function SearchResults({ results }: SearchResultsProps) {
                         </Typography>
                       </Box>
                     </TableCell>
-                    <TableCell>
-                      <Tooltip title={item.title || NO_TITLE} placement="top">
-                        <Typography noWrap sx={{ maxWidth: 200 }}>
-                          {item.title || NO_TITLE}
-                        </Typography>
-                      </Tooltip>
+                    <TableCell sx={{ 
+                      whiteSpace: 'normal', 
+                      verticalAlign: 'middle'
+                    }}>
+                      {item.title}
+                      {item.additional_info && item.additional_info.searched_by_jan && (
+                        <Chip 
+                          label="JAN一致" 
+                          size="small" 
+                          color="success" 
+                          sx={{ 
+                            height: '20px', 
+                            fontSize: '0.7rem', 
+                            fontWeight: 'bold',
+                            ml: 1,
+                            verticalAlign: 'middle',
+                            display: 'inline-flex'
+                          }} 
+                        />
+                      )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ verticalAlign: 'middle' }}>
                       <Typography variant="body1" fontWeight="bold" color="primary">
-                        {formatPrice(item.price)}円
+                        ¥{formatPrice(item.price)} <Typography component="span" variant="caption" color="text.secondary">(税込)</Typography>
                       </Typography>
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ verticalAlign: 'middle' }}>
                       {item.image_url ? (
                         <Box
                           component="img"
@@ -615,7 +742,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
                         />
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ verticalAlign: 'middle' }}>
                       <Button
                         component="a"
                         href={item.url}
@@ -625,6 +752,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
                         size="small"
                         onClick={(e) => e.stopPropagation()}
                         startIcon={<FaExternalLinkAlt />}
+                        sx={{ whiteSpace: 'nowrap', minWidth: '100px' }}
                       >
                         商品ページ
                       </Button>
@@ -823,18 +951,11 @@ export default function SearchResults({ results }: SearchResultsProps) {
                             />
                             <Box sx={{ flex: 1 }}>
                               <Typography 
-                                variant="body2" 
-                                sx={{ 
-                                  mb: 1, 
-                                  display: '-webkit-box',
-                                  WebkitLineClamp: 3,
-                                  WebkitBoxOrient: 'vertical',
-                                  overflow: 'hidden',
-                                  lineHeight: 1.3,
-                                  height: '3.9em'
-                                }}
+                                variant="subtitle1" 
+                                sx={{ fontWeight: 'medium', mb: 1, display: 'flex', alignItems: 'center' }}
                               >
-                                {product.title || NO_TITLE}
+                                {product.title}
+                                {renderJanBadge(product)}
                               </Typography>
                               <Typography variant="h6" color="#FF9900" fontWeight="bold">
                                 {formatPrice(product.price)}円
@@ -989,18 +1110,11 @@ export default function SearchResults({ results }: SearchResultsProps) {
                           />
                           <Box sx={{ flex: 1 }}>
                             <Typography 
-                              variant="body2" 
-                              sx={{ 
-                                mb: 1, 
-                                display: '-webkit-box',
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                                lineHeight: 1.3,
-                                height: '3.9em'
-                              }}
+                              variant="subtitle1" 
+                              sx={{ fontWeight: 'medium', mb: 1, display: 'flex', alignItems: 'center' }}
                             >
-                              {product.title || NO_TITLE}
+                              {product.title}
+                              {renderJanBadge(product)}
                             </Typography>
                             <Typography variant="h6" color="#BF0000" fontWeight="bold">
                               {formatPrice(product.price)}円
@@ -1165,18 +1279,11 @@ export default function SearchResults({ results }: SearchResultsProps) {
                           />
                           <Box sx={{ flex: 1 }}>
                             <Typography 
-                              variant="body2" 
-                              sx={{ 
-                                mb: 1, 
-                                display: '-webkit-box',
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                                lineHeight: 1.3,
-                                height: '3.9em'
-                              }}
+                              variant="subtitle1" 
+                              sx={{ fontWeight: 'medium', mb: 1, display: 'flex', alignItems: 'center' }}
                             >
-                              {product.title || NO_TITLE}
+                              {product.title}
+                              {renderJanBadge(product)}
                             </Typography>
                             <Typography variant="h6" color="#6001D2" fontWeight="bold">
                               {formatPrice(product.price)}円

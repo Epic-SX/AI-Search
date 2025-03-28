@@ -463,10 +463,10 @@ export default function EnhancedComparisonResults({ result }: EnhancedComparison
             <TableRow>
               <TableCell sx={{ fontWeight: 'bold', backgroundColor: 'grey.100', whiteSpace: 'normal', borderLeft: '4px solid #e0e0e0' }}>価格</TableCell>
               <TableCell sx={{ fontWeight: 'bold', color: 'primary.main', whiteSpace: 'normal', p: 2 }}>
-                ¥{(result.product_a.price || 0).toLocaleString()}
+                ¥{(result.product_a.price || 0).toLocaleString()} <Typography component="span" variant="caption" color="text.secondary">(税込)</Typography>
               </TableCell>
               <TableCell sx={{ fontWeight: 'bold', color: 'primary.main', whiteSpace: 'normal', p: 2, backgroundColor: '#f8f8f8' }}>
-                ¥{(result.product_b.price || 0).toLocaleString()}
+                ¥{(result.product_b.price || 0).toLocaleString()} <Typography component="span" variant="caption" color="text.secondary">(税込)</Typography>
               </TableCell>
             </TableRow>
             

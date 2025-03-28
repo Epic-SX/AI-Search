@@ -22,6 +22,7 @@ export interface SearchResult {
   detailed_products: ProductInfo[];
   product_info?: string;
   error?: string | null;
+  jan_code?: string | null;
 }
 
 // 画像検索結果の型定義

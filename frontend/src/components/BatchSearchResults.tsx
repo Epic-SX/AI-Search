@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Typography, Divider, Tabs, Tab, Paper } from '@mui/material';
+import { Box, Typography, Divider, Tabs, Tab, Paper, Tooltip } from '@mui/material';
 import SearchResults from './SearchResults';
 import { SearchResult } from '@/types';
 
@@ -53,6 +53,56 @@ const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results }) => {
     );
   }
 
+  // Function to render numbered circles without model numbers below
+  const renderModelNumbers = () => {
+    return (
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+        {results.map((result, index) => {
+          const modelNumber = result.product_info || 
+            (result.keywords && result.keywords.length > 0 ? result.keywords[0] : `検索 ${index + 1}`);
+          
+          return (
+            <Tooltip 
+              key={index}
+              title={modelNumber}
+              arrow
+            >
+              <Box 
+                sx={{ 
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  width: 36,
+                  height: 36,
+                  bgcolor: activeTab === index ? 'primary.main' : 'grey.300',
+                  color: activeTab === index ? 'white' : 'text.primary',
+                  borderRadius: '50%',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '1rem',
+                  transition: 'all 0.2s',
+                  boxShadow: activeTab === index ? '0 2px 4px rgba(0,0,0,0.2)' : 'none',
+                  '&:hover': {
+                    bgcolor: activeTab === index ? 'primary.dark' : 'grey.400',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.25)'
+                  }
+                }}
+                onClick={() => setActiveTab(index)}
+              >
+                {index + 1}
+              </Box>
+            </Tooltip>
+          );
+        })}
+      </Box>
+    );
+  };
+
+  const getModelNumber = (result: SearchResult, index: number) => {
+    return result.product_info || 
+      (result.keywords && result.keywords.length > 0 ? result.keywords[0] : `検索 ${index + 1}`);
+  };
+
   return (
     <Box sx={{ mt: 4 }}>
       <Typography variant="h5" gutterBottom>
@@ -62,6 +112,10 @@ const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results }) => {
         {results.length}件の検索結果があります
       </Typography>
       
+      {/* Display just numbered circles with tooltips for model numbers */}
+      {renderModelNumbers()}
+      
+      {/* Tabs for selecting which result to view */}
       <Paper sx={{ width: '100%', mb: 2 }}>
         <Tabs
           value={activeTab}
@@ -73,12 +127,17 @@ const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results }) => {
           aria-label="search results tabs"
         >
           {results.map((result, index) => (
-            <Tab 
+            <Tooltip 
               key={index} 
-              label={result.product_info || (result.keywords && result.keywords.length > 0 ? result.keywords[0] : `検索 ${index + 1}`)} 
-              id={`search-tab-${index}`}
-              aria-controls={`search-tabpanel-${index}`}
-            />
+              title={getModelNumber(result, index)}
+              arrow
+            >
+              <Tab 
+                label={`${index + 1}`} 
+                id={`search-tab-${index}`}
+                aria-controls={`search-tabpanel-${index}`}
+              />
+            </Tooltip>
           ))}
         </Tabs>
       </Paper>
@@ -86,7 +145,7 @@ const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results }) => {
       {results.map((result, index) => (
         <TabPanel key={index} value={activeTab} index={index}>
           <Typography variant="h6" gutterBottom>
-            検索キーワード: {result.product_info || (result.keywords && result.keywords.length > 0 ? result.keywords.join(', ') : "不明")}
+            検索キーワード: {getModelNumber(result, index)}
           </Typography>
           <SearchResults results={result} />
         </TabPanel>

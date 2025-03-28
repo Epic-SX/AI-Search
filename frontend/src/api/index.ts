@@ -11,14 +11,35 @@ axios.defaults.headers.common['Accept'] = 'application/json';
 axios.defaults.headers.post['Content-Type'] = 'application/json';
 axios.defaults.withCredentials = false;
 
+// Get JAN code for a model number
+export const getJanCode = async (modelNumber: string): Promise<string | null> => {
+  try {
+    console.log(`DEBUG API: Getting JAN code for model number "${modelNumber}"`);
+    const response = await axios.post(`${API_BASE_URL}/api/get-jan-code`, {
+      model_number: modelNumber
+    });
+    console.log('DEBUG API: JAN code response received:', response.data);
+    return response.data.jan_code;
+  } catch (error) {
+    console.error('Error getting JAN code:', error);
+    return null;
+  }
+};
+
 // 商品情報による検索
 export const searchByProductInfo = async (productInfo: string, directSearch: boolean = true): Promise<SearchResult> => {
   try {
-    console.log(`DEBUG API: Calling searchByProductInfo with productInfo="${productInfo}", directSearch=true`);
+    // Check if this looks like a model number (contains alphanumeric with optional dashes)
+    const isModelNumber = Boolean(productInfo.match(/^[A-Za-z0-9]+-?[A-Za-z0-9]+/));
+    
+    console.log(`DEBUG API: Calling searchByProductInfo with productInfo="${productInfo}", directSearch=${directSearch}, isModelNumber=${isModelNumber}`);
+    
     const response = await axios.post(`${API_BASE_URL}/api/search/product`, {
       product_info: productInfo,
-      direct_search: true // Always use direct search
+      direct_search: directSearch, // Always use direct search
+      use_jan_code: isModelNumber // Use JAN code lookup only for model numbers
     });
+    
     console.log('DEBUG API: Search response received:', response.data);
     return response.data;
   } catch (error) {
@@ -28,11 +49,13 @@ export const searchByProductInfo = async (productInfo: string, directSearch: boo
 };
 
 // 複数の商品情報による一括検索
-export const batchSearchByProductInfo = async (productInfoList: string[], directSearch: boolean = true): Promise<SearchResult[]> => {
+export const batchSearchByProductInfo = async (productInfoList: string[], directSearch: boolean = true, timeout: number = 120000): Promise<SearchResult[]> => {
   try {
     const response = await axios.post(`${API_BASE_URL}/api/search/detailed-batch`, {
       product_info_list: productInfoList,
-      direct_search: true // Always use direct search
+      direct_search: directSearch
+    }, {
+      timeout: timeout // Set a longer timeout for larger batches
     });
     return response.data;
   } catch (error) {

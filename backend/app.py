@@ -13,6 +13,7 @@ from src.api.amazon_api import amazon_api, AmazonAPI
 from src.api.rakuten_api import rakuten_api
 from src.api.yahoo_api import yahoo_api
 from src.tools.batch_keyword_generator import BatchKeywordGenerator
+from src.api.perplexity_client import perplexity_client
 
 app = Flask(__name__)
 # Configure CORS properly with specific settings
@@ -789,8 +790,17 @@ def compare_products():
             elif hasattr(product, 'to_dict') and callable(getattr(product, 'to_dict')):
                 return product.to_dict()
             else:
-                # Convert object attributes to dictionary
-                return {k: v for k, v in product.__dict__.items() if not k.startswith('_')}
+                # If it's another type of object with __dict__
+                if hasattr(product, '__dict__'):
+                    product_dict = product.__dict__
+                else:
+                    # Last resort: try to convert to a dictionary or create an empty one
+                    try:
+                        product_dict = dict(product)
+                    except:
+                        print(f"Warning: Could not convert {type(product)} to dictionary. Using empty dict.")
+                        product_dict = {}
+            return product_dict
         
         # 結果を返す
         result = {
@@ -881,69 +891,75 @@ def detailed_batch_search():
             return jsonify({'error': 'Invalid product info list'}), 400
             
         # 商品情報リストが大きすぎる場合はエラー
-        if len(product_info_list) > 5:
-            return jsonify({'error': 'Too many items. Maximum 5 items allowed.'}), 400
+        if len(product_info_list) > 500:
+            return jsonify({'error': 'Too many items. Maximum 500 items allowed.'}), 400
         
         results = []
         
-        for product_info in product_info_list:
-            try:
-                # キーワード生成 (Always use direct search)
-                # For direct search, use the exact model number provided by the user
-                keywords = [product_info]  # Use the exact input as the only keyword
-                print(f"DEBUG: Direct search enabled. Using exact model number: {product_info}")
-                
-                # 価格比較
-                price_results = []
+        # Process items in chunks of 20 for better performance
+        chunk_size = 20
+        for i in range(0, len(product_info_list), chunk_size):
+            chunk = product_info_list[i:i+chunk_size]
+            print(f"Processing chunk {(i//chunk_size)+1}/{(len(product_info_list)+chunk_size-1)//chunk_size} ({len(chunk)} items)")
+            
+            for product_info in chunk:
                 try:
-                    # Use direct search method when direct_search is true
-                    if direct_search:
-                        # Use the exact model number for search
-                        price_results = price_comparison.compare_prices_with_model_numbers(keywords)
-                    else:
-                        price_results = price_comparison.compare_prices(product_info)
-                except Exception as e:
-                    print(f"Error in price comparison for '{product_info}': {e}")
-                
-                # 詳細な商品情報を取得
-                detailed_products = []
-                try:
-                    # Use direct search method when direct_search is true
-                    if direct_search:
-                        # Use the exact model number for search
-                        detailed_products = price_comparison.get_detailed_products_with_model_numbers(keywords)
-                    else:
-                        detailed_products = price_comparison.get_detailed_products(product_info)
-                        
-                    # Log the number of products by source
-                    sources = {}
-                    for product in detailed_products:
-                        source = getattr(product, 'source', 'unknown').lower()
-                        if source in sources:
-                            sources[source] += 1
-                        else:
-                            sources[source] = 1
-                    print(f"DEBUG: Products by source for '{product_info}': {sources}")
+                    # キーワード生成 (Always use direct search)
+                    # For direct search, use the exact model number provided by the user
+                    keywords = [product_info]  # Use the exact input as the only keyword
+                    print(f"DEBUG: Direct search enabled. Using exact model number: {product_info}")
                     
+                    # 価格比較
+                    price_results = []
+                    try:
+                        # Use direct search method when direct_search is true
+                        if direct_search:
+                            # Use the exact model number for search
+                            price_results = price_comparison.compare_prices_with_model_numbers(keywords)
+                        else:
+                            price_results = price_comparison.compare_prices(product_info)
+                    except Exception as e:
+                        print(f"Error in price comparison for '{product_info}': {e}")
+                    
+                    # 詳細な商品情報を取得
+                    detailed_products = []
+                    try:
+                        # Use direct search method when direct_search is true
+                        if direct_search:
+                            # Use the exact model number for search
+                            detailed_products = price_comparison.get_detailed_products_with_model_numbers(keywords)
+                        else:
+                            detailed_products = price_comparison.get_detailed_products(product_info)
+                            
+                        # Log the number of products by source
+                        sources = {}
+                        for product in detailed_products:
+                            source = getattr(product, 'source', 'unknown').lower()
+                            if source in sources:
+                                sources[source] += 1
+                            else:
+                                sources[source] = 1
+                        print(f"DEBUG: Products by source for '{product_info}': {sources}")
+                        
+                    except Exception as e:
+                        print(f"Error getting detailed products for '{product_info}': {e}")
+                    
+                    results.append({
+                        'product_info': product_info,
+                        'keywords': keywords,
+                        'price_comparison': price_results,
+                        'detailed_products': [p.to_dict() if hasattr(p, 'to_dict') else (p if isinstance(p, dict) else (p.__dict__ if hasattr(p, '__dict__') else {})) for p in detailed_products],
+                        'error': None
+                    })
                 except Exception as e:
-                    print(f"Error getting detailed products for '{product_info}': {e}")
-                
-                results.append({
-                    'product_info': product_info,
-                    'keywords': keywords,
-                    'price_comparison': price_results,
-                    'detailed_products': [p.to_dict() if hasattr(p, 'to_dict') else p.__dict__ for p in detailed_products],
-                    'error': None
-                })
-            except Exception as e:
-                print(f"Error processing '{product_info}': {e}")
-                results.append({
-                    'product_info': product_info,
-                    'keywords': [product_info],
-                    'price_comparison': [],
-                    'detailed_products': [],
-                    'error': str(e)
-                })
+                    print(f"Error processing '{product_info}': {e}")
+                    results.append({
+                        'product_info': product_info,
+                        'keywords': [product_info],
+                        'price_comparison': [],
+                        'detailed_products': [],
+                        'error': str(e)
+                    })
         
         return jsonify(results)
     except Exception as e:
@@ -1080,33 +1096,121 @@ def search_product():
     try:
         data = request.json
         product_info = data.get('product_info', '')
+        use_jan_code = data.get('use_jan_code', True)  # Default to True
         
         if not product_info:
             return jsonify({"error": "Product info is required"}), 400
         
         # Use direct search with the exact model number/product info
         keywords = [product_info]
+        jan_code = None
         
-        # Get detailed product information
-        detailed_products = price_comparison.get_detailed_products_with_model_numbers(keywords)
+        # Check if it looks like a model number
+        is_model_number = bool(re.match(r'^[A-Za-z0-9]+-?[A-Za-z0-9]+', str(product_info)))
+        
+        # Check if it's already a JAN code (8 or 13 digits)
+        is_jan_code = bool(re.match(r'^[0-9]{8}$|^[0-9]{13}$', str(product_info)))
+        
+        # If it's already a JAN code, use it directly
+        if is_jan_code:
+            print(f"Input is already a JAN code: {product_info}")
+            jan_code = product_info
+            keywords = [jan_code]
+            
+            # Get detailed product information using JAN code
+            detailed_products = price_comparison.get_detailed_products_direct(jan_code)
+            
+        # If it's a model number and JAN code lookup is enabled, try to get a JAN code
+        elif is_model_number and use_jan_code:
+            jan_code = perplexity_client.get_jan_code(product_info)
+            if jan_code:
+                # If JAN code is found, it becomes the ONLY search term
+                print(f"Found JAN code for {product_info}: {jan_code}")
+                # Use only the JAN code for search to ensure consistency across platforms
+                keywords = [jan_code]
+                
+                # Get detailed product information using JAN code
+                detailed_products = price_comparison.get_detailed_products_direct(jan_code)
+                
+                # If no products found with JAN code, fall back to model number
+                if not detailed_products or len(detailed_products) == 0:
+                    print(f"No products found with JAN code, falling back to model number")
+                    detailed_products = price_comparison.get_detailed_products_direct(product_info)
+            else:
+                # No JAN code found, use the model number
+                print(f"No JAN code found for {product_info}, using model number directly")
+                detailed_products = price_comparison.get_detailed_products_direct(product_info)
+        else:
+            # Not a model number or JAN code lookup disabled, use normal search
+            print(f"Using normal search for {product_info} (not a model number or JAN lookup disabled)")
+            detailed_products = price_comparison.get_detailed_products_direct(product_info)
         
         # Convert product objects to dictionaries
         serializable_products = []
         for product in detailed_products:
             if hasattr(product, 'to_dict'):
                 product_dict = product.to_dict()
+                # Add metadata to indicate this product was found via JAN code
+                if jan_code:
+                    if not product_dict.get('additional_info'):
+                        product_dict['additional_info'] = {}
+                    product_dict['additional_info']['searched_by_jan'] = True
+                    product_dict['additional_info']['jan_code'] = jan_code
                 serializable_products.append(product_dict)
             else:
                 # If it's already a dictionary
-                serializable_products.append(product.__dict__)
+                if isinstance(product, dict):
+                    product_dict = product
+                else:
+                    # If it's another type of object with __dict__
+                    if hasattr(product, '__dict__'):
+                        product_dict = product.__dict__
+                    else:
+                        # Last resort: try to convert to a dictionary or create an empty one
+                        try:
+                            product_dict = dict(product)
+                        except:
+                            print(f"Warning: Could not convert {type(product)} to dictionary. Using empty dict.")
+                            product_dict = {}
+                # Add metadata to indicate this product was found via JAN code
+                if jan_code:
+                    if not product_dict.get('additional_info'):
+                        product_dict['additional_info'] = {}
+                    product_dict['additional_info']['searched_by_jan'] = True
+                    product_dict['additional_info']['jan_code'] = jan_code
+                serializable_products.append(product_dict)
         
         # Return the results
         return jsonify({
             'query': product_info,
             'keywords': keywords,
+            'jan_code': jan_code,
             'detailed_products': serializable_products
         })
         
     except Exception as e:
         print(f"Error in product search: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/get-jan-code', methods=['POST'])
+def get_jan_code():
+    """Get JAN code for a model number using Perplexity AI"""
+    try:
+        data = request.json
+        model_number = data.get('model_number', '')
+        
+        if not model_number:
+            return jsonify({"error": "Model number is required"}), 400
+        
+        # Get JAN code from Perplexity AI
+        jan_code = perplexity_client.get_jan_code(model_number)
+        
+        # Return the JAN code
+        return jsonify({
+            'model_number': model_number,
+            'jan_code': jan_code
+        })
+        
+    except Exception as e:
+        print(f"Error getting JAN code: {e}")
         return jsonify({"error": str(e)}), 500

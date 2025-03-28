@@ -18,6 +18,7 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isBestModelMode, setIsBestModelMode] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ current: number, total: number } | null>(null);
 
   // Handle single product search
   const handleSingleSearch = async (productInfo: string, directSearch: boolean) => {
@@ -61,13 +62,38 @@ export default function SearchPage() {
     }
     
     setLoading(true);
+    setBatchProgress({ current: 0, total: productInfoList.length });
     
     try {
       if (useAI) {
         await enhancedBatchSearch(productInfoList, directSearch);
       } else {
-        const results = await batchSearchByProductInfo(productInfoList, directSearch);
-        setBatchResults(results);
+        // For large batches, we'll process in chunks and update progress
+        if (productInfoList.length > 20) {
+          // Process in chunks of 20
+          const chunkSize = 20;
+          let allResults: SearchResult[] = [];
+          
+          for (let i = 0; i < productInfoList.length; i += chunkSize) {
+            const chunk = productInfoList.slice(i, i + chunkSize);
+            const results = await batchSearchByProductInfo(chunk, directSearch);
+            allResults = [...allResults, ...results];
+            
+            // Update progress
+            setBatchProgress({ 
+              current: Math.min(i + chunkSize, productInfoList.length), 
+              total: productInfoList.length 
+            });
+            
+            // Update partial results to show progress
+            setBatchResults(allResults);
+          }
+        } else {
+          // For smaller batches, process all at once
+          const results = await batchSearchByProductInfo(productInfoList, directSearch);
+          setBatchResults(results);
+          setBatchProgress({ current: productInfoList.length, total: productInfoList.length });
+        }
       }
     } catch (error) {
       console.error('Batch search error:', error);
@@ -75,6 +101,7 @@ export default function SearchPage() {
       setBatchResults([]);
     } finally {
       setLoading(false);
+      setBatchProgress(null);
     }
   };
 
@@ -82,11 +109,14 @@ export default function SearchPage() {
   const enhancedBatchSearch = async (productInfoList: string[], directSearch: boolean) => {
     try {
       // First, enhance the keywords
+      setBatchProgress({ current: 0, total: productInfoList.length * 2 }); // Double the steps for AI enhancement
       const enhancedKeywords = await enhanceKeywords(productInfoList);
+      setBatchProgress({ current: productInfoList.length, total: productInfoList.length * 2 });
       
       // Then, search with the enhanced keywords
       const results = await batchSearchByProductInfo(enhancedKeywords, directSearch);
       setBatchResults(results);
+      setBatchProgress({ current: productInfoList.length * 2, total: productInfoList.length * 2 });
     } catch (error) {
       console.error('Enhanced batch search error:', error);
       // Fallback to regular batch search
@@ -166,8 +196,37 @@ export default function SearchPage() {
         />
         
         {loading && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', my: 4 }}>
             <CircularProgress />
+            {batchProgress && (
+              <Box sx={{ mt: 2, textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  処理中... {batchProgress.current}/{batchProgress.total}
+                </Typography>
+                <Box sx={{ width: '100%', mt: 1 }}>
+                  <Box
+                    sx={{
+                      width: '250px',
+                      height: '4px',
+                      bgcolor: 'grey.200',
+                      borderRadius: 1,
+                      position: 'relative',
+                      mx: 'auto'
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: `${(batchProgress.current / batchProgress.total) * 100}%`,
+                        height: '100%',
+                        bgcolor: 'primary.main',
+                        borderRadius: 1,
+                        transition: 'width 0.3s ease-in-out'
+                      }}
+                    />
+                  </Box>
+                </Box>
+              </Box>
+            )}
           </Box>
         )}
         
@@ -177,6 +236,15 @@ export default function SearchPage() {
         
         {!loading && isBatchMode && batchResults.length > 0 && (
           <BatchSearchResults results={batchResults} />
+        )}
+        
+        {loading && isBatchMode && batchResults.length > 0 && (
+          <Box sx={{ mt: 4, opacity: 0.7 }}>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              一部の結果を表示しています。すべての検索が完了するまでお待ちください。
+            </Alert>
+            <BatchSearchResults results={batchResults} />
+          </Box>
         )}
         
         {!loading && isBestModelMode && bestModelResult && (

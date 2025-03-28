@@ -34,7 +34,10 @@ class ProductSearchEngine:
                 # ProductDetailオブジェクトを辞書に変換
                 serializable_detailed_products = []
                 for product in detailed_products:
-                    if hasattr(product, '__dict__'):
+                    if isinstance(product, dict):
+                        # If it's already a dictionary, just copy it
+                        serializable_detailed_products.append(product)
+                    elif hasattr(product, '__dict__'):
                         # オブジェクトを辞書に変換
                         product_dict = product.__dict__.copy()
                         # 非シリアライズ可能なフィールドを削除
@@ -42,8 +45,13 @@ class ProductSearchEngine:
                             del product_dict['_sa_instance_state']
                         serializable_detailed_products.append(product_dict)
                     else:
-                        # すでに辞書の場合はそのまま追加
-                        serializable_detailed_products.append(product)
+                        # Other types, try to convert to dictionary if possible
+                        try:
+                            product_dict = dict(product)
+                            serializable_detailed_products.append(product_dict)
+                        except:
+                            # If all else fails, add as is
+                            serializable_detailed_products.append(product)
                 
                 detailed_products = serializable_detailed_products
             except Exception as e:

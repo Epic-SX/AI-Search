@@ -3,6 +3,7 @@ from src.api.rakuten_api import rakuten_api
 from src.api.yahoo_api import yahoo_api
 from src.config.settings import PRICE_THRESHOLD
 from concurrent.futures import ThreadPoolExecutor
+import re
 
 class PriceComparisonEngine:
     def __init__(self):
@@ -102,7 +103,7 @@ class PriceComparisonEngine:
                 print(f"Error getting product details from {api_name}: {e}")
                 
         # 価格で昇順ソート
-        sorted_products = sorted(all_products, key=lambda x: x.price if x.price else float('inf'))
+        sorted_products = sorted(all_products, key=lambda x: x.price if hasattr(x, 'price') else (x.get('price', float('inf')) if isinstance(x, dict) else float('inf')))
         
         print(f"DEBUG: Total products found across all sources: {len(sorted_products)}")
         # Print breakdown by source
@@ -124,41 +125,128 @@ class PriceComparisonEngine:
         print(f"DEBUG: Direct search for detailed products: '{product_info}'")
         all_products = []
         
-        # Check if the keyword is a common product category
-        common_categories = ["tv", "テレビ", "television", "pc", "パソコン", "computer", 
-                            "laptop", "ノートパソコン", "camera", "カメラ", "smartphone", 
-                            "スマートフォン", "スマホ", "phone", "携帯電話"]
+        # Enhanced list of common product categories with Japanese and English variations
+        common_categories = {
+            "tv": "2502",
+            "テレビ": "2502", 
+            "television": "2502",
+            "pc": "2505",
+            "パソコン": "2505",
+            "computer": "2505",
+            "laptop": "2505",
+            "ノートパソコン": "2505",
+            "camera": "2511",
+            "カメラ": "2511",
+            "smartphone": "2514",
+            "スマートフォン": "2514",
+            "スマホ": "2514",
+            "phone": "2514",
+            "携帯電話": "2514",
+            "冷蔵庫": "2437",
+            "家電": "2430",
+            "オーディオ": "2516"
+        }
         
         is_common_category = False
-        for category in common_categories:
-            if product_info.lower() == category or product_info.lower().startswith(category + " "):
+        category_id = None
+        
+        # Check if it's a common category
+        query_lower = product_info.lower()
+        for category, id_value in common_categories.items():
+            if query_lower == category or query_lower.startswith(category + " "):
                 is_common_category = True
+                category_id = id_value
                 break
+        
+        # Check if this looks like a model number (alphanumeric with optional dashes)
+        is_model_number = bool(re.match(r'^[A-Za-z0-9]+-?[A-Za-z0-9]+$', str(product_info)))
+        
+        # Check if this looks like a JAN code (8 or 13 digits)
+        is_jan_code = bool(re.match(r'^[0-9]{8}$|^[0-9]{13}$', str(product_info)))
+        
+        # If it's a JAN code, log it clearly
+        if is_jan_code:
+            print(f"DEBUG: Searching with JAN code: {product_info}")
         
         # 各APIから詳細情報を取得
         for api_name, api in self.apis.items():
             try:
                 if hasattr(api, 'get_product_details'):
                     # Use the exact keyword for search
-                    products = api.get_product_details(product_info)
+                    products = []
+                    
+                    # Special handling for Rakuten and Yahoo when dealing with common categories
+                    if is_common_category and api_name in ['Rakuten', 'Yahoo']:
+                        if hasattr(api, 'get_category_products') and category_id:
+                            print(f"DEBUG: Using category search for {api_name} with category ID {category_id}")
+                            # Use category-specific search method if available
+                            products = api.get_category_products(product_info, category_id)
+                        else:
+                            # Fall back to standard search
+                            products = api.get_product_details(product_info)
+                            # For common categories, accept all results from Rakuten and Yahoo
+                            all_products.extend(products[:10])  # Take top 10 results
+                            continue
+                    else:
+                        # Standard search for other APIs or non-category searches
+                        products = api.get_product_details(product_info)
                     
                     # For Amazon, include all products without filtering
                     if api_name == 'Amazon':
                         all_products.extend(products)
                     else:
-                        # For other APIs, filter products based on whether it's a common category
+                        # For other APIs, filter products based on various criteria
                         filtered_products = []
-                        for product in products:
-                            # For common categories, don't require exact title match
-                            if is_common_category or product_info.lower() in product.title.lower():
-                                filtered_products.append(product)
+                        
+                        # For common categories on Rakuten/Yahoo, accept all results
+                        if is_common_category and api_name in ['Rakuten', 'Yahoo']:
+                            filtered_products = products[:10]  # Take top 10 results
+                        else:
+                            # For JAN code searches, use strict exact matching
+                            if is_jan_code:
+                                print(f"DEBUG: Filtering {api_name} products by JAN code: {product_info}")
+                                # If it's a JAN code search, all returned products should be relevant
+                                # Just take them all (up to a reasonable limit) since we used the janCode parameter
+                                filtered_products = products[:10]
+                                
+                                # Add JAN code metadata to each product if not already present
+                                for product in filtered_products:
+                                    if isinstance(product, dict):
+                                        # If it's a dictionary
+                                        if 'additional_info' not in product:
+                                            product['additional_info'] = {}
+                                        product['additional_info']['searched_by_jan'] = True
+                                        product['additional_info']['jan_code'] = product_info
+                                    else:
+                                        # If it's a ProductDetail object
+                                        if not hasattr(product, 'additional_info') or not product.additional_info:
+                                            product.additional_info = {}
+                                        product.additional_info['searched_by_jan'] = True
+                                        product.additional_info['jan_code'] = product_info
+                            else:
+                                # For other cases, use more sophisticated filtering
+                                for product in products:
+                                    title = product.title.lower() if product.title else ""
+                                    query = product_info.lower()
+                                    
+                                    # Different matching logic based on type of search
+                                    if (is_common_category or                          # Common category
+                                        not is_model_number or                         # Not a model number (likely a product name)
+                                        (is_model_number and query in title) or        # Model number found in title
+                                        any(word in title for word in query.split())):  # Any word in query found in title
+                                        filtered_products.append(product)
+                        
+                        # For non-model number searches on Rakuten and Yahoo, relax filtering if no results
+                        if not is_model_number and not is_jan_code and len(filtered_products) == 0 and api_name in ['Rakuten', 'Yahoo']:
+                            # Return all results without strict filtering for product name searches
+                            filtered_products = products[:10]  # Increased from 5 to 10
                         
                         all_products.extend(filtered_products)
             except Exception as e:
                 print(f"Error getting product details from {api_name} (direct search): {e}")
                 
         # 価格で昇順ソート
-        sorted_products = sorted(all_products, key=lambda x: x.price if x.price else float('inf'))
+        sorted_products = sorted(all_products, key=lambda x: x.price if hasattr(x, 'price') else (x.get('price', float('inf')) if isinstance(x, dict) else float('inf')))
         
         return sorted_products
 
@@ -182,7 +270,7 @@ class PriceComparisonEngine:
                 print(f"Error getting detailed products for model number '{model_number}': {e}")
         
         # 価格で昇順ソート
-        sorted_products = sorted(all_products, key=lambda x: x.price if x.price else float('inf'))
+        sorted_products = sorted(all_products, key=lambda x: x.price if hasattr(x, 'price') else (x.get('price', float('inf')) if isinstance(x, dict) else float('inf')))
         
         return sorted_products
 
@@ -241,45 +329,111 @@ class PriceComparisonEngine:
         各APIから複数の価格情報を取得 (直接検索モード)
         """
         try:
+            # Enhanced list of common product categories with Japanese and English variations
+            common_categories = {
+                "tv": "2502",
+                "テレビ": "2502", 
+                "television": "2502",
+                "pc": "2505",
+                "パソコン": "2505",
+                "computer": "2505",
+                "laptop": "2505",
+                "ノートパソコン": "2505",
+                "camera": "2511",
+                "カメラ": "2511",
+                "smartphone": "2514",
+                "スマートフォン": "2514",
+                "スマホ": "2514",
+                "phone": "2514",
+                "携帯電話": "2514",
+                "冷蔵庫": "2437",
+                "家電": "2430",
+                "オーディオ": "2516"
+            }
+            
+            is_common_category = False
+            category_id = None
+            
+            # Check if it's a common category
+            query_lower = product_info.lower()
+            for category, id_value in common_categories.items():
+                if query_lower == category or query_lower.startswith(category + " "):
+                    is_common_category = True
+                    category_id = id_value
+                    break
+
+            # Check if this looks like a model number (alphanumeric with optional dashes)
+            is_model_number = bool(re.match(r'^[A-Za-z0-9]+-?[A-Za-z0-9]+$', str(product_info)))
+            
             if hasattr(api, 'get_multiple_prices'):
-                results = api.get_multiple_prices(product_info)
+                # Special handling for common categories on Rakuten and Yahoo
+                if is_common_category and api_name in ['Rakuten', 'Yahoo'] and hasattr(api, 'get_category_prices') and category_id:
+                    print(f"DEBUG: Using category price search for {api_name} with category ID {category_id}")
+                    results = api.get_category_prices(product_info, category_id)
+                else:
+                    results = api.get_multiple_prices(product_info)
                 
-                # Check if the keyword is a common product category
-                common_categories = ["tv", "テレビ", "television", "pc", "パソコン", "computer", 
-                                    "laptop", "ノートパソコン", "camera", "カメラ", "smartphone", 
-                                    "スマートフォン", "スマホ", "phone", "携帯電話"]
-                
-                is_common_category = False
-                for category in common_categories:
-                    if product_info.lower() == category or product_info.lower().startswith(category + " "):
-                        is_common_category = True
-                        break
-                
-                # Filter results based on whether it's a common category or specific model
+                # Filter results based on whether it's a common category, model number, or product name
                 filtered_results = []
-                for result in results:
-                    # For common categories, don't require exact title match
-                    if is_common_category or product_info.lower() in result.get('title', '').lower():
+                
+                # For common categories on Rakuten/Yahoo, accept all results
+                if is_common_category and api_name in ['Rakuten', 'Yahoo']:
+                    # Just ensure all items have store property
+                    for result in results[:10]:  # Take top 10 results
+                        if 'store' not in result and 'shop' in result:
+                            result['store'] = result['shop']
+                        elif 'store' not in result:
+                            result['store'] = f"{api_name} ショップ"
+                        filtered_results.append(result)
+                else:
+                    # For other searches, use more sophisticated filtering
+                    for result in results:
+                        # For model numbers, require exact match in title
+                        # For product names or common categories, use more relaxed matching
+                        title = result.get('title', '').lower()
+                        query = product_info.lower()
+                        
+                        # Different matching logic based on type of search
+                        if (is_common_category or                          # Common category
+                            not is_model_number or                         # Not a model number (likely a product name)
+                            (is_model_number and query in title) or        # Model number found in title
+                            any(word in title for word in query.split())):  # Any word in query found in title
+                            
+                            # Ensure the result has a 'store' property
+                            if 'store' not in result and 'shop' in result:
+                                result['store'] = result['shop']
+                            elif 'store' not in result:
+                                if api_name.lower() == 'amazon':
+                                    result['store'] = 'Amazon.co.jp'
+                                elif api_name.lower() == 'rakuten':
+                                    result['store'] = '楽天市場'
+                                elif api_name.lower() == 'yahoo':
+                                    result['store'] = 'Yahoo!ショッピング'
+                                else:
+                                    result['store'] = api_name
+                            
+                            filtered_results.append(result)
+                
+                # For non-model number searches on Rakuten and Yahoo, relax filtering if no results
+                if not is_model_number and len(filtered_results) == 0 and api_name in ['Rakuten', 'Yahoo']:
+                    # Return all results without strict filtering for product name searches
+                    for result in results[:10]:  # Increased from 5 to 10
                         # Ensure the result has a 'store' property
                         if 'store' not in result and 'shop' in result:
                             result['store'] = result['shop']
                         elif 'store' not in result:
-                            if api_name.lower() == 'amazon':
-                                result['store'] = 'Amazon.co.jp'
-                            elif api_name.lower() == 'rakuten':
-                                result['store'] = '楽天市場'
-                            elif api_name.lower() == 'yahoo':
-                                result['store'] = 'Yahoo!ショッピング'
-                            else:
-                                result['store'] = api_name
-                        
+                            result['store'] = f"{api_name} ショップ"
                         filtered_results.append(result)
                 
                 return filtered_results
             else:
                 # 単一の価格情報しか返さないAPIの場合
                 price_info = api.get_price(product_info)
-                if price_info and product_info.lower() in price_info.get('title', '').lower():
+                # Check if this looks like a model number (alphanumeric with optional dashes)
+                is_model_number = bool(re.match(r'^[A-Za-z0-9]+-?[A-Za-z0-9]+$', str(product_info)))
+                
+                # For non-model numbers or common categories, don't filter by title match
+                if price_info and (is_common_category or not is_model_number or product_info.lower() in price_info.get('title', '').lower()):
                     price_info['source'] = api_name
                     
                     # Ensure the price_info has a 'store' property
