@@ -120,135 +120,136 @@ class PriceComparisonEngine:
 
     def get_detailed_products_direct(self, product_info):
         """
-        各サイトから詳細な商品情報を取得 (直接検索モード)
+        Get detailed product information for a specific product
         """
-        print(f"DEBUG: Direct search for detailed products: '{product_info}'")
         all_products = []
+        api_results = {}
         
-        # Enhanced list of common product categories with Japanese and English variations
-        common_categories = {
-            "tv": "2502",
-            "テレビ": "2502", 
-            "television": "2502",
-            "pc": "2505",
-            "パソコン": "2505",
-            "computer": "2505",
-            "laptop": "2505",
-            "ノートパソコン": "2505",
-            "camera": "2511",
-            "カメラ": "2511",
-            "smartphone": "2514",
-            "スマートフォン": "2514",
-            "スマホ": "2514",
-            "phone": "2514",
-            "携帯電話": "2514",
-            "冷蔵庫": "2437",
-            "家電": "2430",
-            "オーディオ": "2516"
-        }
+        # Convert to string in case we get a non-string input
+        product_info = str(product_info).strip()
         
-        is_common_category = False
-        category_id = None
+        # Check if this looks like a JAN code (13 digits or 8 digits)
+        is_jan_code = bool(re.match(r'^[0-9]{8}$|^[0-9]{13}$', product_info))
         
-        # Check if it's a common category
-        query_lower = product_info.lower()
-        for category, id_value in common_categories.items():
-            if query_lower == category or query_lower.startswith(category + " "):
-                is_common_category = True
-                category_id = id_value
-                break
+        # Check if this is a common generic category that doesn't need strict filtering
+        common_categories = ['laptop', 'ノートパソコン', 'パソコン', 'タブレット', 'スマホ', 'スマートフォン', 
+                            'PC', 'コンピューター', 'computer', 'smartphone', 'tablet', 'phone']
         
-        # Check if this looks like a model number (alphanumeric with optional dashes)
-        is_model_number = bool(re.match(r'^[A-Za-z0-9]+-?[A-Za-z0-9]+$', str(product_info)))
+        # Check if this is a laptop-related search
+        laptop_brands = ['hp', 'dell', 'lenovo', 'asus', 'acer', 'msi', 'fujitsu', 'toshiba', 'nec', 'vaio']
+        is_laptop_search = False
         
-        # Check if this looks like a JAN code (8 or 13 digits)
-        is_jan_code = bool(re.match(r'^[0-9]{8}$|^[0-9]{13}$', str(product_info)))
+        # Check if product_info contains a laptop brand
+        if any(brand.lower() in product_info.lower() for brand in laptop_brands):
+            if any(category.lower() in product_info.lower() for category in ['laptop', 'ノートパソコン', 'パソコン', 'PC']):
+                is_laptop_search = True
+                print(f"DEBUG: Detected specific laptop search: {product_info}")
         
-        # If it's a JAN code, log it clearly
-        if is_jan_code:
-            print(f"DEBUG: Searching with JAN code: {product_info}")
+        is_common_category = any(category.lower() in product_info.lower() for category in common_categories)
         
-        # 各APIから詳細情報を取得
-        for api_name, api in self.apis.items():
-            try:
-                if hasattr(api, 'get_product_details'):
-                    # Use the exact keyword for search
-                    products = []
-                    
-                    # Special handling for Rakuten and Yahoo when dealing with common categories
-                    if is_common_category and api_name in ['Rakuten', 'Yahoo']:
-                        if hasattr(api, 'get_category_products') and category_id:
-                            print(f"DEBUG: Using category search for {api_name} with category ID {category_id}")
-                            # Use category-specific search method if available
-                            products = api.get_category_products(product_info, category_id)
-                        else:
-                            # Fall back to standard search
-                            products = api.get_product_details(product_info)
-                            # For common categories, accept all results from Rakuten and Yahoo
-                            all_products.extend(products[:10])  # Take top 10 results
-                            continue
-                    else:
-                        # Standard search for other APIs or non-category searches
-                        products = api.get_product_details(product_info)
-                    
-                    # For Amazon, include all products without filtering
-                    if api_name == 'Amazon':
-                        all_products.extend(products)
-                    else:
-                        # For other APIs, filter products based on various criteria
-                        filtered_products = []
-                        
-                        # For common categories on Rakuten/Yahoo, accept all results
-                        if is_common_category and api_name in ['Rakuten', 'Yahoo']:
-                            filtered_products = products[:10]  # Take top 10 results
-                        else:
-                            # For JAN code searches, use strict exact matching
-                            if is_jan_code:
-                                print(f"DEBUG: Filtering {api_name} products by JAN code: {product_info}")
-                                # If it's a JAN code search, all returned products should be relevant
-                                # Just take them all (up to a reasonable limit) since we used the janCode parameter
-                                filtered_products = products[:10]
-                                
-                                # Add JAN code metadata to each product if not already present
-                                for product in filtered_products:
-                                    if isinstance(product, dict):
-                                        # If it's a dictionary
-                                        if 'additional_info' not in product:
-                                            product['additional_info'] = {}
-                                        product['additional_info']['searched_by_jan'] = True
-                                        product['additional_info']['jan_code'] = product_info
-                                    else:
-                                        # If it's a ProductDetail object
-                                        if not hasattr(product, 'additional_info') or not product.additional_info:
-                                            product.additional_info = {}
-                                        product.additional_info['searched_by_jan'] = True
-                                        product.additional_info['jan_code'] = product_info
-                            else:
-                                # For other cases, use more sophisticated filtering
-                                for product in products:
-                                    title = product.title.lower() if product.title else ""
-                                    query = product_info.lower()
-                                    
-                                    # Different matching logic based on type of search
-                                    if (is_common_category or                          # Common category
-                                        not is_model_number or                         # Not a model number (likely a product name)
-                                        (is_model_number and query in title) or        # Model number found in title
-                                        any(word in title for word in query.split())):  # Any word in query found in title
-                                        filtered_products.append(product)
-                        
-                        # For non-model number searches on Rakuten and Yahoo, relax filtering if no results
-                        if not is_model_number and not is_jan_code and len(filtered_products) == 0 and api_name in ['Rakuten', 'Yahoo']:
-                            # Return all results without strict filtering for product name searches
-                            filtered_products = products[:10]  # Increased from 5 to 10
-                        
-                        all_products.extend(filtered_products)
-            except Exception as e:
-                print(f"Error getting product details from {api_name} (direct search): {e}")
+        # Log what we're searching for
+        print(f"DEBUG: Direct search for: {product_info} (JAN: {is_jan_code}, Common Category: {is_common_category}, Laptop: {is_laptop_search})")
+        
+        # For laptop searches, enhance the search query to be more specific
+        search_terms = [product_info]
+        if is_laptop_search:
+            # Extract brand and key terms
+            terms = product_info.split()
+            brand = next((term for term in terms if term.lower() in laptop_brands), None)
+            
+            if brand:
+                # Create additional specific search terms
+                if 'windows' in product_info.lower():
+                    search_terms.append(f"{brand} ノートパソコン windows")
+                else:
+                    search_terms.append(f"{brand} ノートパソコン")
                 
-        # 価格で昇順ソート
-        sorted_products = sorted(all_products, key=lambda x: x.price if hasattr(x, 'price') else (x.get('price', float('inf')) if isinstance(x, dict) else float('inf')))
+                print(f"DEBUG: Enhanced laptop search terms: {search_terms}")
         
-        return sorted_products
+        # Iterate through each API to get products
+        for api_name, api_instance in self.apis.items():
+            try:
+                print(f"DEBUG: Searching {api_name} for {product_info}")
+                
+                # For each search term, try to find products
+                products = []
+                for term in search_terms:
+                    try:
+                        # Get products from the API using the correct method name
+                        if api_name == 'Amazon':
+                            # For Amazon, use get_product_details
+                            api_products = api_instance.get_product_details(term)
+                        elif api_name == 'Yahoo' and is_jan_code:
+                            # For Yahoo, use JAN code search if applicable
+                            if hasattr(api_instance, 'get_products_by_jan'):
+                                api_products = api_instance.get_products_by_jan(term)
+                            else:
+                                api_products = api_instance.get_product_details(term)
+                        elif api_name == 'Rakuten' and is_jan_code:
+                            # For Rakuten, use JAN code search if applicable
+                            if hasattr(api_instance, 'get_products_by_jan'):
+                                api_products = api_instance.get_products_by_jan(term)
+                            else:
+                                api_products = api_instance.get_product_details(term)
+                        else:
+                            # Regular search for other cases
+                            api_products = api_instance.get_product_details(term)
+                    except Exception as e:
+                        print(f"Error calling API method for {api_name}: {e}")
+                        api_products = []
+                    
+                    # If products found with this term, use them and stop trying other terms
+                    if api_products and len(api_products) > 0:
+                        print(f"DEBUG: Found {len(api_products)} products from {api_name} using term: {term}")
+                        products = api_products
+                        break
+                
+                # Store API results
+                api_results[api_name] = products
+                
+                # For Amazon, include all products without filtering
+                if api_name == 'Amazon':
+                    all_products.extend(products)
+                else:
+                    # For other APIs, filter products based on various criteria
+                    filtered_products = []
+                    
+                    # For common categories or laptop searches, accept more results
+                    if (is_common_category or is_laptop_search) and api_name in ['Rakuten', 'Yahoo']:
+                        filtered_products = products[:10]  # Take top 10 results
+                        print(f"DEBUG: Using broad matching for {api_name} due to category or laptop search")
+                    else:
+                        # For JAN code searches, use strict exact matching
+                        if is_jan_code:
+                            print(f"DEBUG: Filtering {api_name} products by JAN code: {product_info}")
+                            # If it's a JAN code search, all returned products should be relevant
+                            # Just take them all (up to a reasonable limit) since we used the janCode parameter
+                            filtered_products = products[:10]
+                            
+                            # Add JAN code metadata to each product if not already present
+                            for product in filtered_products:
+                                if isinstance(product, dict):
+                                    # If it's a dictionary
+                                    if 'additional_info' not in product:
+                                        product['additional_info'] = {}
+                                    product['additional_info']['searched_by_jan'] = True
+                                    product['additional_info']['jan_code'] = product_info
+                                else:
+                                    # If it's a ProductDetail object
+                                    if not hasattr(product, 'additional_info') or not product.additional_info:
+                                        product.additional_info = {}
+                                    product.additional_info['searched_by_jan'] = True
+                                    product.additional_info['jan_code'] = product_info
+                    
+                    # Add filtered products to the overall list
+                    all_products.extend(filtered_products)
+                    
+            except Exception as e:
+                print(f"Error getting products from {api_name}: {e}")
+                
+        # Return the combined list of products
+        print(f"DEBUG: Total products found across all APIs: {len(all_products)}")
+        return all_products
 
     def get_detailed_products_with_model_numbers(self, model_numbers):
         """

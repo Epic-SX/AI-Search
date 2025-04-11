@@ -36,6 +36,7 @@ export interface ImageSearchResult {
   message?: string;
   error?: string;
   filename?: string;
+  jan_code?: string | null;
 }
 
 // 類似商品の型定義

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { 
   Box, Button, TextField, Typography, 
   Paper, IconButton, Tooltip, Grid, Alert
 } from '@mui/material';
-import { FaPlus, FaTrash, FaFileImport, FaCompressArrowsAlt, FaInfoCircle } from 'react-icons/fa';
+import { FaPlus, FaTrash, FaFileImport, FaCompressArrowsAlt, FaInfoCircle, FaLink } from 'react-icons/fa';
 
 interface BatchCompareFormProps {
   onBatchCompare: (productPairs: Array<{ productA: string, productB: string }>) => void;
@@ -15,7 +15,10 @@ export default function BatchCompareForm({ onBatchCompare }: BatchCompareFormPro
   ]);
   const [csvContent, setCsvContent] = useState('');
   const [showCsvImport, setShowCsvImport] = useState(false);
+  const [showUrlImport, setShowUrlImport] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
   const [showTips, setShowTips] = useState(true);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Add a new product pair
   const addProductPair = () => {
@@ -81,6 +84,65 @@ export default function BatchCompareForm({ onBatchCompare }: BatchCompareFormPro
     }
   };
 
+  // Handle file upload
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      setCsvContent(content);
+      // Automatically import after file is loaded
+      setTimeout(() => {
+        handleCsvImport();
+      }, 100);
+    };
+    reader.readAsText(file);
+  };
+
+  // Process URLs
+  const handleUrlImport = () => {
+    if (!urlInput.trim()) {
+      alert('URLを入力してください');
+      return;
+    }
+
+    // Split URLs by line break
+    const urls = urlInput.trim().split('\n');
+    
+    // Create pairs from URLs (each line will be a separate product pair)
+    if (urls.length === 1) {
+      // If only one URL, add it to the first product
+      const newPairs = [...productPairs];
+      if (newPairs.length === 0) {
+        newPairs.push({ productA: urls[0], productB: '' });
+      } else {
+        newPairs[0].productA = urls[0];
+      }
+      setProductPairs(newPairs);
+    } else if (urls.length > 1) {
+      // If multiple URLs, create pairs or add to existing pairs
+      const newPairs: Array<{ productA: string, productB: string }> = [];
+      
+      for (let i = 0; i < urls.length; i += 2) {
+        const productA = urls[i];
+        const productB = i + 1 < urls.length ? urls[i + 1] : '';
+        newPairs.push({ productA, productB });
+      }
+      
+      setProductPairs(newPairs);
+    }
+    
+    setShowUrlImport(false);
+    setUrlInput('');
+  };
+
+  // Add empty product pair if there are none
+  if (productPairs.length === 0) {
+    addProductPair();
+  }
+
   return (
     <Paper sx={{ p: 3, mb: 4 }}>
       <Typography variant="h6" gutterBottom>
@@ -101,47 +163,46 @@ export default function BatchCompareForm({ onBatchCompare }: BatchCompareFormPro
             <li>スペースや特殊文字に注意してください</li>
             <li>複数の商品を比較する場合は、行を追加してください</li>
             <li>CSVからインポートする場合は、各行に「商品A,商品B」の形式で入力してください</li>
+            <li>URLを貼り付ける場合は、各行に1つのURLを入力してください</li>
           </ul>
         </Alert>
       )}
       
-      <Box component="form" onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit}>
         {productPairs.map((pair, index) => (
-          <Grid container spacing={2} key={index} sx={{ mb: 2 }}>
-            <Grid item xs={12} sm={5}>
+          <Grid container key={index} spacing={2} sx={{ mb: 2 }}>
+            <Grid item xs={5}>
               <TextField
                 fullWidth
-                label={`商品A ${index + 1}`}
-                placeholder="例: EA628W-25B"
+                size="small"
+                label={`商品A (${index + 1})`}
                 value={pair.productA}
                 onChange={(e) => updateProductPair(index, 'productA', e.target.value)}
-                size="small"
-                helperText={index === 0 ? "正確な型番を入力してください" : ""}
+                placeholder="型番または商品名"
               />
             </Grid>
-            <Grid item xs={12} sm={5}>
+            
+            <Grid item xs={5}>
               <TextField
                 fullWidth
-                label={`商品B ${index + 1}`}
-                placeholder="例: EA762FA-262"
+                size="small"
+                label={`商品B (${index + 1})`}
                 value={pair.productB}
                 onChange={(e) => updateProductPair(index, 'productB', e.target.value)}
-                size="small"
-                helperText={index === 0 ? "正確な型番を入力してください" : ""}
+                placeholder="型番または商品名"
               />
             </Grid>
-            <Grid item xs={12} sm={2} sx={{ display: 'flex', alignItems: 'center' }}>
-              {productPairs.length > 1 && (
-                <Tooltip title="この行を削除">
-                  <IconButton 
-                    color="error" 
-                    onClick={() => removeProductPair(index)}
-                    size="small"
-                  >
-                    <FaTrash />
-                  </IconButton>
-                </Tooltip>
-              )}
+            
+            <Grid item xs={2} sx={{ display: 'flex', alignItems: 'center' }}>
+              <Tooltip title="この行を削除">
+                <IconButton 
+                  color="error" 
+                  onClick={() => removeProductPair(index)}
+                  disabled={productPairs.length <= 1}
+                >
+                  <FaTrash />
+                </IconButton>
+              </Tooltip>
             </Grid>
           </Grid>
         ))}
@@ -161,10 +222,41 @@ export default function BatchCompareForm({ onBatchCompare }: BatchCompareFormPro
             type="button"
             variant="outlined"
             startIcon={<FaFileImport />}
-            onClick={() => setShowCsvImport(!showCsvImport)}
+            onClick={() => {
+              // Trigger file input click
+              if (fileInputRef.current) {
+                fileInputRef.current.click();
+              }
+            }}
             size="small"
           >
-            CSVからインポート
+            ファイルから読み込む
+          </Button>
+
+          <Button
+            type="button"
+            variant="outlined"
+            startIcon={<FaLink />}
+            onClick={() => {
+              setShowUrlImport(!showUrlImport);
+              setShowCsvImport(false);
+            }}
+            size="small"
+          >
+            URLから読み込む
+          </Button>
+          
+          <Button
+            type="button"
+            variant="outlined"
+            startIcon={<FaFileImport />}
+            onClick={() => {
+              setShowCsvImport(!showCsvImport);
+              setShowUrlImport(false);
+            }}
+            size="small"
+          >
+            CSVテキスト入力
           </Button>
           
           <Tooltip title="入力のヒントを表示">
@@ -179,6 +271,15 @@ export default function BatchCompareForm({ onBatchCompare }: BatchCompareFormPro
               ヒント
             </Button>
           </Tooltip>
+
+          {/* Hidden file input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            accept=".csv,.txt"
+            onChange={handleFileUpload}
+          />
         </Box>
         
         {showCsvImport && (
@@ -204,15 +305,41 @@ export default function BatchCompareForm({ onBatchCompare }: BatchCompareFormPro
             </Button>
           </Box>
         )}
+
+        {showUrlImport && (
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="body2" gutterBottom>
+              URLs: 各行に1つのURLを入力してください（奇数行が商品A、偶数行が商品Bとなります）
+            </Typography>
+            <TextField
+              fullWidth
+              multiline
+              rows={4}
+              placeholder="https://www.amazon.co.jp/dp/B08KHFZN1P&#10;https://www.rakuten.co.jp/item/123456"
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              sx={{ mb: 2 }}
+            />
+            <Button
+              variant="contained"
+              onClick={handleUrlImport}
+              size="small"
+            >
+              インポート
+            </Button>
+          </Box>
+        )}
         
         <Button
           type="submit"
           variant="contained"
-          startIcon={<FaCompressArrowsAlt />}
+          fullWidth
+          disabled={productPairs.every(pair => !pair.productA.trim() || !pair.productB.trim())}
+          sx={{ mt: 2 }}
         >
-          一括比較する
+          比較を実行
         </Button>
-      </Box>
+      </form>
     </Paper>
   );
 } 

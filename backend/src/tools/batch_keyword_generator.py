@@ -99,6 +99,8 @@ class BatchKeywordGenerator:
                 出力は商品名＋商品の特徴＋サイズや重量は近いものでお願いします。
                 既存のメーカーを選定しないように、メーカー名、型番は記載しないようにお願いします。
                 英語の場合は日本語に翻訳してください。
+                情報が少ない場合は、型番から製品の種類を推測し、一般的な用途や特徴を考慮してキーワードを生成してください。
+                単に型番をそのまま返すのではなく、その型番が表す可能性のある製品の一般名称や特徴を推測してください。
                 
                 {cleaned_model}
                 
@@ -112,6 +114,8 @@ class BatchKeywordGenerator:
                 出力は商品名＋商品の特徴＋サイズや重量は近いものでお願いします。
                 既存のメーカーを選定しないように、メーカー名、型番は記載しないようにお願いします。
                 英語の場合は日本語に翻訳してください。
+                情報が少ない場合は、型番から製品の種類を推測し、一般的な用途や特徴を考慮してキーワードを生成してください。
+                単に型番をそのまま返すのではなく、その型番が表す可能性のある製品の一般名称や特徴を推測してください。
                 
                 型番 {cleaned_model}
                 
@@ -127,7 +131,7 @@ class BatchKeywordGenerator:
                     "messages": [
                         {
                             "role": "system",
-                            "content": "あなたは製品型番から最適な検索キーワードを生成する専門家です。簡潔で具体的な日本語のキーワードを1つだけ提供してください。"
+                            "content": "あなたは製品型番から最適な検索キーワードを生成する専門家です。型番を見て、その製品が何であるかを推測し、具体的な特徴や用途を含む日本語のキーワードを1つ生成してください。単に型番をそのまま返すのではなく、その製品を表す一般的な名称や特徴を提供してください。例えば「EA628W-25B」という型番からは「25mm幅 耐久性 防水テープ」のようなキーワードを生成します。"
                         },
                         {
                             "role": "user",
@@ -156,13 +160,14 @@ class BatchKeywordGenerator:
             else:
                 return cleaned_model  # Fallback to using the model number directly
 
-    def batch_generate(self, model_numbers, custom_prompt=None):
+    def batch_generate(self, model_numbers, custom_prompt=None, force_refresh=False):
         """
         Generate search keywords for multiple model numbers or product information
         
         Args:
             model_numbers: List of model numbers or product information dictionaries
             custom_prompt: Optional custom prompt template
+            force_refresh: If True, bypass cache and generate new keywords
         
         Returns:
             List of dictionaries with model_number and keyword
@@ -194,11 +199,11 @@ class BatchKeywordGenerator:
                     # Update the model number in the dictionary
                     item["model_number"] = model_number
                     
-                    # Check cache first
+                    # Check cache first (unless force refresh is enabled)
                     cache_key = f"{model_number}-{hash(str(custom_prompt))}"
                     cache_file = os.path.join("cache", f"keyword_{hash(cache_key)}.json")
                     
-                    if os.path.exists(cache_file):
+                    if not force_refresh and os.path.exists(cache_file):
                         try:
                             with open(cache_file, 'r', encoding='utf-8') as f:
                                 cached_result = json.load(f)
@@ -239,11 +244,11 @@ class BatchKeywordGenerator:
                     if not model_number.strip():
                         continue
                     
-                    # Check cache first
+                    # Check cache first (unless force refresh is enabled)
                     cache_key = f"{model_number}-{hash(str(custom_prompt))}"
                     cache_file = os.path.join("cache", f"keyword_{hash(cache_key)}.json")
                     
-                    if os.path.exists(cache_file):
+                    if not force_refresh and os.path.exists(cache_file):
                         try:
                             with open(cache_file, 'r', encoding='utf-8') as f:
                                 cached_result = json.load(f)

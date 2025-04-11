@@ -212,6 +212,51 @@ export const analyzeImage = async (formData: FormData | { image_url: string }): 
   }
 };
 
+// 画像の内容をPerplexityで分析
+export const analyzeImageWithPerplexity = async (formData: FormData | { image_url: string }): Promise<{
+  product_name: string;
+  model_number: string;
+  jan_code: string;
+  additional_keywords: string[];
+} | null> => {
+  try {
+    const endpoint = `${API_BASE_URL}/api/analyze-image-with-perplexity`;
+    console.log(`Sending image analysis with Perplexity request to ${endpoint}`);
+    
+    let response;
+    if ('image_url' in formData) {
+      // If it's an image URL
+      response = await axios.post(endpoint, {
+        image_url: formData.image_url
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        timeout: 60000 // 60 second timeout because Perplexity may take longer
+      });
+    } else {
+      // If it's a file upload
+      response = await axios.post(endpoint, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 60000 // 60 second timeout
+      });
+    }
+    
+    console.log('Image analysis with Perplexity response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Error analyzing image with Perplexity:', error);
+    if (axios.isAxiosError(error)) {
+      console.error('Response data:', error.response?.data);
+      console.error('Status:', error.response?.status);
+    }
+    return null;
+  }
+};
+
 // 商品比較
 export const compareProducts = async (productA: string, productB: string): Promise<ComparisonResult> => {
   try {
@@ -242,11 +287,12 @@ export const compareProducts = async (productA: string, productB: string): Promi
 };
 
 // キーワードの強化
-export const enhanceKeywords = async (modelNumbers: string[], prompt?: string): Promise<any> => {
+export const enhanceKeywords = async (modelNumbers: string[], prompt?: string, forceRefresh: boolean = true): Promise<any> => {
   try {
     const response = await axios.post(`${API_BASE_URL}/api/search/batch-keywords`, {
       model_numbers: modelNumbers,
-      custom_prompt: prompt
+      custom_prompt: prompt,
+      force_refresh: forceRefresh
     });
     return response.data;
   } catch (error) {
@@ -256,22 +302,52 @@ export const enhanceKeywords = async (modelNumbers: string[], prompt?: string): 
 };
 
 // 複数の商品情報による一括検索
-export const batchSearchByProductInfo = async (productInfoList: string[], directSearch: boolean = true, timeout: number = 120000): Promise<SearchResult[]> => {
+export const batchSearchByProductInfo = async (
+  productInfoList: string[], 
+  directSearch: boolean = true, 
+  useJanCode: boolean = true,
+  timeout: number = 120000
+): Promise<SearchResult[]> => {
   try {
+    console.log('Sending batch search request:', {
+      product_info_list: productInfoList,
+      direct_search: directSearch,
+      use_jan_code: useJanCode
+    });
+    
     const response = await axios.post(`${API_BASE_URL}/api/search/detailed-batch`, {
       product_info_list: productInfoList,
-      direct_search: directSearch
+      direct_search: directSearch,
+      use_jan_code: useJanCode
     }, {
       timeout: timeout // Set a longer timeout for larger batches
     });
     
+    console.log('Batch search raw response:', response.data);
+    
     // If the response contains a batch_id, save it for status checking
     if (response.data.batch_id) {
       localStorage.setItem('last_batch_id', response.data.batch_id);
-      return response.data.results;
+      
+      // Make sure we always return a valid array of results
+      if (Array.isArray(response.data.results)) {
+        return response.data.results;
+      } else if (response.data.results) {
+        // If it's not an array but exists, wrap it
+        return [response.data.results];
+      } else {
+        // If no results at all, return empty array
+        return [];
+      }
     }
     
-    return response.data;
+    // If the response is already an array, return it
+    if (Array.isArray(response.data)) {
+      return response.data;
+    }
+    
+    // Otherwise, try to extract results property or return empty array
+    return response.data.results || [];
   } catch (error) {
     console.error('Error in batch search:', error);
     throw error;

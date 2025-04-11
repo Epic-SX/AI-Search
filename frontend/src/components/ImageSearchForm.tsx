@@ -27,10 +27,11 @@ import {
   Delete as DeleteIcon,
   ContentPaste as ContentPasteIcon 
 } from '@mui/icons-material';
+import { analyzeImageWithPerplexity } from '@/api';
 
 interface ImageSearchFormProps {
   onSearch: (formData: FormData | { image_url: string }) => Promise<void>;
-  onBatchSearch?: (formData: FormData[] | { image_urls: string[] }) => Promise<void>;
+  onBatchSearch?: (formData: FormData[] | { image_urls: string[], enhanced_data?: any[] }) => Promise<void>;
   isLoading?: boolean;
 }
 
@@ -43,6 +44,7 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
   const [success, setSuccess] = useState<string | null>(null);
   const [hasClipboardImage, setHasClipboardImage] = useState(false);
   const [searchMode, setSearchMode] = useState<'single' | 'batch'>('batch');
+  const [loading, setLoading] = useState(false);
   const batchFileInputRef = useRef<HTMLInputElement>(null);
   const batchDropAreaRef = useRef<HTMLDivElement>(null);
 
@@ -100,7 +102,7 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
   // Add event listener for paste events
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
-      if (isLoading) return;
+      if (loading) return;
       
       // Skip if the target is an input or textarea element
       if (
@@ -145,9 +147,9 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [isLoading, handleBatchFile]);
+  }, [loading, handleBatchFile]);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Always use batch mode
@@ -159,10 +161,85 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
           formData.append('image', file);
           return formData;
         });
-        onBatchSearch(formDataArray);
+        
+        setLoading(true);
+        try {
+          // First analyze each image with Perplexity to get better keywords
+          const enhancedFormDataArray = [];
+          for (const formData of formDataArray) {
+            try {
+              const result = await analyzeImageWithPerplexity(formData);
+              if (result && (result.model_number || result.product_name)) {
+                // Create a new form data with the enhanced info
+                const enhancedFormData = new FormData();
+                // Get the original file from the original formData
+                const file = formData.get('image') as File;
+                if (file) {
+                  enhancedFormData.append('image', file);
+                }
+                // Add enhanced data as custom fields
+                enhancedFormData.append('enhanced_model_number', result.model_number);
+                enhancedFormData.append('enhanced_product_name', result.product_name);
+                enhancedFormData.append('enhanced_jan_code', result.jan_code);
+                enhancedFormData.append('enhanced_keywords', JSON.stringify(result.additional_keywords));
+                
+                enhancedFormDataArray.push(enhancedFormData);
+              } else {
+                // If enhancement failed, use the original form data
+                enhancedFormDataArray.push(formData);
+              }
+            } catch (error) {
+              console.error('Error enhancing image with Perplexity:', error);
+              // If enhancement failed, use the original form data
+              enhancedFormDataArray.push(formData);
+            }
+          }
+          
+          // Now search with the enhanced form data
+          await onBatchSearch(enhancedFormDataArray);
+        } catch (error) {
+          console.error('Error during enhanced search:', error);
+          setError('画像分析中にエラーが発生しました');
+        } finally {
+          setLoading(false);
+        }
       } else if (imageUrls.length > 0) {
         // 複数URLの場合
-        onBatchSearch({ image_urls: imageUrls });
+        setLoading(true);
+        try {
+          // First analyze each image URL with Perplexity to get better keywords
+          const enhancedImageUrls = [];
+          for (const url of imageUrls) {
+            try {
+              const result = await analyzeImageWithPerplexity({ image_url: url });
+              if (result && (result.model_number || result.product_name)) {
+                // Add enhanced data to the URL
+                enhancedImageUrls.push({
+                  url,
+                  enhanced_model_number: result.model_number,
+                  enhanced_product_name: result.product_name,
+                  enhanced_jan_code: result.jan_code,
+                  enhanced_keywords: result.additional_keywords
+                });
+              } else {
+                // If enhancement failed, use the original URL
+                enhancedImageUrls.push({ url });
+              }
+            } catch (error) {
+              console.error('Error enhancing image URL with Perplexity:', error);
+              // If enhancement failed, use the original URL
+              enhancedImageUrls.push({ url });
+            }
+          }
+          
+          // Now search with the enhanced image URLs
+          await onBatchSearch({ image_urls: enhancedImageUrls.map(item => item.url), enhanced_data: enhancedImageUrls });
+        } catch (error) {
+          console.error('Error during enhanced URL search:', error);
+          setError('画像URL分析中にエラーが発生しました');
+        } finally {
+          setLoading(false);
+        }
       } else {
         setError('画像ファイルまたは画像URLを入力してください');
       }
@@ -250,6 +327,43 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
     }
   };
 
+  // Add a new handler for bulk URL pasting
+  const handleBulkUrlPaste = () => {
+    try {
+      navigator.clipboard.readText().then(text => {
+        // Check if text contains multiple lines or URLs
+        const urls = text.split(/[\n,]+/).map(url => url.trim()).filter(url => {
+          // Basic URL validation - check if it's likely an image URL
+          return url.startsWith('http') && 
+            (url.match(/\.(jpeg|jpg|gif|png|webp)/i) || 
+             url.includes('images') || 
+             url.includes('img') || 
+             url.includes('photo'));
+        });
+        
+        if (urls.length > 0) {
+          // Add all valid URLs to the imageUrls array
+          setImageUrls(prevUrls => {
+            const newUrls = [...prevUrls];
+            urls.forEach(url => {
+              if (!newUrls.includes(url)) {
+                newUrls.push(url);
+              }
+            });
+            return newUrls;
+          });
+          
+          setSuccess(`${urls.length}枚の画像URLを追加しました`);
+        } else {
+          setError('有効な画像URLが見つかりませんでした');
+        }
+      });
+    } catch (error) {
+      console.error('Error accessing clipboard:', error);
+      setError('クリップボードの読み取りに失敗しました');
+    }
+  };
+
   return (
     <Card>
       <CardContent>
@@ -267,25 +381,61 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
             </Typography>
           </Box>
           
-          <TextField
-            fullWidth
-            id="batchImageUrl"
-            label="画像URL"
-            placeholder="https://example.com/image.jpg"
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            margin="normal"
-            disabled={isLoading}
-          />
-          
-          <Button
-            variant="outlined"
-            onClick={handleAddImageUrl}
-            disabled={isLoading || !imageUrl.trim()}
-            sx={{ mt: 1 }}
-          >
-            URLを追加
-          </Button>
+          <Box sx={{ display: 'flex', mb: 2 }}>
+            <Paper 
+              variant="outlined"
+              sx={{ 
+                display: 'flex', 
+                width: '100%',
+                overflow: 'hidden',
+                borderRight: 'none' // Remove right border to blend with button
+              }}
+            >
+              <TextField
+                id="batchImageUrl"
+                label="画像URL"
+                fullWidth
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://example.com/image.jpg"
+                InputProps={{
+                  endAdornment: (
+                    <Button
+                      onClick={handleAddImageUrl}
+                      variant="contained"
+                      color="primary"
+                      disabled={!imageUrl.trim() || loading}
+                      sx={{ mr: -1 }}
+                    >
+                      追加
+                    </Button>
+                  ),
+                }}
+                sx={{ 
+                  '& .MuiOutlinedInput-notchedOutline': { 
+                    border: 'none' // Remove TextField border
+                  }
+                }}
+              />
+            </Paper>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={handleBulkUrlPaste}
+              startIcon={<ContentPasteIcon />}
+              disabled={loading}
+              title="クリップボードから複数URLを貼り付け"
+              sx={{ 
+                whiteSpace: 'nowrap',
+                minWidth: '90px',
+                height: '56px', // Match the height of the TextField
+                borderTopLeftRadius: 0,
+                borderBottomLeftRadius: 0
+              }}
+            >
+              一括貼付
+            </Button>
+          </Box>
           
           {imageUrls.length > 0 && (
             <Box sx={{ mt: 2 }}>
@@ -318,20 +468,20 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
               mt: 3,
               textAlign: 'center',
               backgroundColor: isDragging ? 'rgba(3, 169, 244, 0.04)' : 'background.paper',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              opacity: isLoading ? 0.7 : 1,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.7 : 1,
               '&:focus': {
                 outline: 'none',
                 boxShadow: '0 0 0 2px rgba(3, 169, 244, 0.5)',
               }
             }}
-            onDragEnter={!isLoading ? handleDragEnter : undefined}
-            onDragLeave={!isLoading ? handleDragLeave : undefined}
-            onDragOver={!isLoading ? handleDragOver : undefined}
-            onDrop={!isLoading ? handleDrop : undefined}
-            onClick={!isLoading ? () => batchFileInputRef.current?.click() : undefined}
+            onDragEnter={!loading ? handleDragEnter : undefined}
+            onDragLeave={!loading ? handleDragLeave : undefined}
+            onDragOver={!loading ? handleDragOver : undefined}
+            onDrop={!loading ? handleDrop : undefined}
+            onClick={!loading ? () => batchFileInputRef.current?.click() : undefined}
             onKeyDown={(e) => {
-              if (!isLoading && (e.key === 'Enter' || e.key === ' ')) {
+              if (!loading && (e.key === 'Enter' || e.key === ' ')) {
                 e.preventDefault();
                 batchFileInputRef.current?.click();
               }
@@ -344,7 +494,7 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
               multiple
               ref={batchFileInputRef}
               onChange={handleImageUpload}
-              disabled={isLoading}
+              disabled={loading}
             />
             <CloudUploadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
             <Typography variant="h6" gutterBottom>
@@ -354,7 +504,7 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
               variant="outlined"
               startIcon={<ImageIcon />}
               component="span"
-              disabled={isLoading}
+              disabled={loading}
             >
               複数ファイルをアップロード
             </Button>
@@ -437,13 +587,13 @@ export default function ImageSearchForm({ onSearch, onBatchSearch, isLoading = f
           <Button 
             type="submit" 
             variant="contained" 
-            startIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
+            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
             size="large"
             fullWidth
-            disabled={isLoading || (imageUrls.length === 0 && files.length === 0)}
+            disabled={loading || (imageUrls.length === 0 && files.length === 0)}
             sx={{ mt: 2 }}
           >
-            {isLoading ? '検索中...' : '一括検索 (複数画像)'}
+            {loading ? '検索中...' : '一括検索 (複数画像)'}
           </Button>
         </Box>
         

@@ -183,17 +183,29 @@ class ImageSearchEngine:
             if not image_data and not image_url:
                 raise ValueError("Either image_data or image_url must be provided")
                 
-            # Google Cloud Vision APIリクエストの準備
+            # Google Cloud Vision APIリクエストの準備 - 検出機能を増やす
             request_data = {
                 "requests": [
                     {
                         "features": [
                             {
                                 "type": "LABEL_DETECTION",
-                                "maxResults": 10
+                                "maxResults": 20
                             },
                             {
                                 "type": "OBJECT_LOCALIZATION",
+                                "maxResults": 10
+                            },
+                            {
+                                "type": "LOGO_DETECTION",
+                                "maxResults": 5
+                            },
+                            {
+                                "type": "IMAGE_PROPERTIES",
+                                "maxResults": 5
+                            },
+                            {
+                                "type": "WEB_DETECTION",
                                 "maxResults": 5
                             }
                         ]
@@ -229,16 +241,25 @@ class ImageSearchEngine:
                     
                 result = response.json()
                 
-                # レスポンスからラベルとオブジェクトを抽出
+                # レスポンスからより詳細な情報を抽出
                 if 'responses' in result and len(result['responses']) > 0:
+                    response = result['responses'][0]
+                    
                     # ラベル検出結果
-                    labels = result['responses'][0].get('labelAnnotations', [])
+                    labels = response.get('labelAnnotations', [])
                     
                     # オブジェクト検出結果
-                    objects = result['responses'][0].get('localizedObjectAnnotations', [])
+                    objects = response.get('localizedObjectAnnotations', [])
                     
-                    # 日本語の検索キーワードを生成
-                    return self._generate_japanese_search_term(labels, objects)
+                    # ロゴ検出結果
+                    logos = response.get('logoAnnotations', [])
+                    
+                    # Web検出結果
+                    web_detection = response.get('webDetection', {})
+                    web_entities = web_detection.get('webEntities', [])
+                    
+                    # 詳細な情報を元に検索キーワードを生成
+                    return self._generate_detailed_search_term(labels, objects, logos, web_entities)
                 
                 return self._get_fallback_generic_term()
             except Exception as e:
@@ -781,3 +802,97 @@ class ImageSearchEngine:
                 'title': "類似商品 3"
             }
         ] 
+
+    def _generate_detailed_search_term(self, labels, objects, logos, web_entities):
+        """
+        より詳細な情報を元に検索キーワードを生成
+        """
+        try:
+            # Brand/Logo detection - highest priority
+            brand = None
+            for logo in logos:
+                if logo.get('description') and logo.get('score', 0) > 0.7:
+                    brand = logo.get('description')
+                    break
+            
+            # Object detection - second priority
+            object_types = []
+            primary_object = None
+            for obj in objects:
+                if obj.get('score', 0) > 0.7:
+                    object_types.append(obj.get('name', '').lower())
+                    if not primary_object and ('laptop' in obj.get('name', '').lower() or 
+                                              'computer' in obj.get('name', '').lower() or
+                                              'notebook' in obj.get('name', '').lower() or
+                                              'screen' in obj.get('name', '').lower() or
+                                              'monitor' in obj.get('name', '').lower()):
+                        primary_object = obj.get('name')
+            
+            # Label detection - third priority
+            label_types = []
+            for label in labels:
+                if label.get('score', 0) > 0.7:
+                    label_types.append(label.get('description', '').lower())
+            
+            # Web entities - additional information
+            web_descriptions = []
+            for entity in web_entities:
+                if entity.get('score', 0) > 0.5:
+                    web_descriptions.append(entity.get('description', '').lower())
+            
+            # Construct final product term
+            product_terms = []
+            
+            # Start with brand if available
+            if brand:
+                product_terms.append(brand)
+            
+            # Add primary object type
+            if primary_object:
+                product_terms.append(primary_object)
+            # If no primary object found but we have computer-related labels
+            elif any(term in label_types for term in ['laptop', 'computer', 'notebook', 'pc']):
+                for term in ['laptop', 'computer', 'notebook', 'pc']:
+                    if term in label_types:
+                        product_terms.append(term)
+                        break
+            
+            # Add other relevant information from objects and labels
+            for term in ['windows', 'mac', 'apple', 'microsoft', 'dell', 'hp', 'lenovo', 'asus']:
+                if term in ' '.join(label_types).lower() or term in ' '.join(web_descriptions).lower():
+                    if term not in ' '.join(product_terms).lower():
+                        product_terms.append(term)
+            
+            # Add operating system info if detected
+            if 'windows' in ' '.join(label_types).lower() or 'windows' in ' '.join(web_descriptions).lower():
+                if 'windows' not in ' '.join(product_terms).lower():
+                    product_terms.append('Windows')
+            
+            # Translate to Japanese search terms if needed
+            japanese_terms = []
+            for term in product_terms:
+                if term.lower() == 'laptop':
+                    japanese_terms.append('ノートパソコン')
+                elif term.lower() == 'computer':
+                    japanese_terms.append('コンピュータ')
+                elif term.lower() == 'notebook':
+                    japanese_terms.append('ノートブック')
+                elif term.lower() == 'pc':
+                    japanese_terms.append('PC')
+                elif term.lower() == 'windows':
+                    japanese_terms.append('Windows')
+                else:
+                    japanese_terms.append(term)
+            
+            # Construct final search term
+            if japanese_terms:
+                final_term = ' '.join(japanese_terms)
+                print(f"Analyzed image content: {final_term}")
+                return final_term
+            
+            # Fallback to the original method if nothing specific is found
+            return self._generate_japanese_search_term(labels, objects)
+            
+        except Exception as e:
+            print(f"Error in _generate_detailed_search_term: {e}")
+            return self._generate_japanese_search_term(labels, objects) 

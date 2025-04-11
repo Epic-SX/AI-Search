@@ -13,6 +13,8 @@ const FALLBACK_IMAGE = "https://placehold.co/300x300/eee/999?text=No+Image";
 const AMAZON_FALLBACK = "https://placehold.co/400x400/232F3E/FFFFFF?text=Amazon+Product";
 const RAKUTEN_FALLBACK = "https://placehold.co/400x400/BF0000/FFFFFF?text=Rakuten+Product";
 const YAHOO_FALLBACK = "https://placehold.co/400x400/6001D2/FFFFFF?text=Yahoo+Product";
+// Default text for missing titles
+const NO_TITLE = "タイトルなし";
 
 // Amazon image domain patterns
 const AMAZON_IMAGE_DOMAINS = [
@@ -266,53 +268,200 @@ export default function ProductCard({ product }: ProductCardProps) {
   });
   
   return (
-    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {isAmazonProduct ? (
-        <Box sx={{ height: 200, p: 2 }}>
+    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', borderRadius: 1 }}>
+      {/* Rank indicator (optional) */}
+      {(product as any).rank && (
+        <Box sx={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          backgroundColor: '#F39C12',
+          color: 'white',
+          padding: '2px 8px',
+          borderRadius: '1px 0 1px 0',
+          fontWeight: 'bold',
+          fontSize: '0.8rem',
+          zIndex: 2
+        }}>
+          {(product as any).rank}位
+        </Box>
+      )}
+
+      {/* Store logo (left side) */}
+      <Box sx={{ 
+        position: 'absolute', 
+        left: 10, 
+        top: 10, 
+        zIndex: 2,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1
+      }}>
+        {isAmazonProduct && (
+          <Box component="span" sx={{ 
+            display: 'flex', 
+            alignItems: 'center',
+            color: '#232F3E', 
+            fontWeight: 'bold',
+            fontSize: '0.9rem'
+          }}>
+            <img 
+              src="/amazon-icon.png" 
+              alt="Amazon" 
+              width={24} 
+              height={24} 
+              style={{ marginRight: '4px' }}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }} 
+            />
+            Amazon
+          </Box>
+        )}
+        {isRakutenProduct && (
+          <Box component="span" sx={{ 
+            display: 'flex', 
+            alignItems: 'center',
+            color: '#BF0000', 
+            fontWeight: 'bold',
+            fontSize: '0.9rem'
+          }}>
+            楽天市場
+          </Box>
+        )}
+      </Box>
+
+      {/* JAN code badge if available */}
+      {(product as any).jan_code && (
+        <Box sx={{
+          position: 'absolute',
+          left: '35%',
+          top: 50,
+          backgroundColor: '#4CAF50',
+          color: 'white',
+          padding: '2px 6px',
+          borderRadius: '4px',
+          fontSize: '0.7rem',
+          zIndex: 2
+        }}>
+          JAN: {(product as any).jan_code}
+        </Box>
+      )}
+
+      {/* Search term display on the left */}
+      <Box sx={{ 
+        position: 'absolute',
+        left: 0,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        width: '24px',
+        minHeight: '100px',
+        writingMode: 'vertical-rl',
+        backgroundColor: '#f0f0f0',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        p: 0.5,
+        fontSize: '0.75rem',
+        fontWeight: 'bold',
+        color: '#555',
+        zIndex: 1
+      }}>
+        {(product as any).search_term || product.model_number || '検索'}
+      </Box>
+
+      {/* Product image */}
+      <Box sx={{ 
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        pt: 2,
+        pl: 3,
+        pr: 2,
+        height: 180
+      }}>
+        {isAmazonProduct ? (
           <SimpleAmazonImage 
             imageUrl={product.image_url || ''}
             title={product.title}
-            height={200}
+            height={150}
           />
-        </Box>
-      ) : isRakutenProduct ? (
-        <Box sx={{ height: 200, p: 2 }}>
+        ) : isRakutenProduct ? (
           <SimpleRakutenImage 
             imageUrl={product.image_url || ''}
             title={product.title}
-            height={200}
-          />
-        </Box>
-      ) : (
-        imageLoading ? (
-          <Skeleton 
-            variant="rectangular" 
-            height={200} 
-            animation="wave" 
-            sx={{ m: 2 }} 
+            height={150}
           />
         ) : (
-          <CardMedia
-            component="img"
-            height={200}
-            image={displayImageUrl}
-            alt={product.title || 'Product Image'}
-            onError={handleImageError}
-            onLoad={handleImageLoad}
-            sx={{ objectFit: 'contain', p: 2 }}
-          />
-        )
-      )}
-      <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-        <Typography variant="h6" component="div" gutterBottom noWrap>
-          {product.title}
-        </Typography>
-        <Typography variant="h5" color="primary" gutterBottom>
+          imageLoading ? (
+            <Skeleton 
+              variant="rectangular" 
+              height={150} 
+              width={150}
+              animation="wave" 
+            />
+          ) : (
+            <CardMedia
+              component="img"
+              height={150}
+              image={displayImageUrl}
+              alt={product.title || 'Product Image'}
+              onError={handleImageError}
+              onLoad={handleImageLoad}
+              sx={{ objectFit: 'contain', maxWidth: 150 }}
+            />
+          )
+        )}
+      </Box>
+
+      <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', p: 2, pt: 1 }}>
+        {/* Blue background for product title */}
+        <Box sx={{ 
+          backgroundColor: '#e3f2fd', 
+          p: 1, 
+          mb: 1, 
+          borderRadius: 1,
+          minHeight: '4.5em'  // Space for up to 3 lines
+        }}>
+          <Typography 
+            variant="subtitle1" 
+            component="div" 
+            sx={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              display: '-webkit-box',
+              WebkitLineClamp: 3,  // Show up to 3 lines
+              WebkitBoxOrient: 'vertical',
+              lineHeight: 1.5,
+              fontSize: '0.875rem',
+              fontWeight: 'medium'
+            }}
+          >
+            {product.title || NO_TITLE}
+          </Typography>
+        </Box>
+
+        {/* Price in red */}
+        <Typography 
+          variant="h5" 
+          sx={{ 
+            color: 'error.main', 
+            fontWeight: 'bold', 
+            mb: 1,
+            fontSize: '1.25rem'
+          }}
+        >
           {product.price && product.price > 0 
-            ? `¥${product.price.toLocaleString()}`
+            ? `¥${product.price.toLocaleString()}` 
             : '価格情報なし'}
+          {product.price && (product as any).tax_included === false && (
+            <Typography component="span" variant="caption" sx={{ ml: 0.5, fontSize: '0.7rem' }}>
+              (税込)
+            </Typography>
+          )}
         </Typography>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
           <Typography variant="body2" color="text.secondary">
             {getDisplayStoreName()}
           </Typography>
@@ -323,13 +472,17 @@ export default function ProductCard({ product }: ProductCardProps) {
           )}
         </Box>
         
-        {(product as any).shipping_fee !== undefined && (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            送料: {(product as any).shipping_fee === 0 ? '無料' : `¥${(product as any).shipping_fee.toLocaleString()}`}
-          </Typography>
-        )}
+        {/* Shipping fee - in red */}
+        <Typography variant="body2" sx={{ color: 'error.main', mb: 0.5 }}>
+          送料: {(product as any).shipping_fee === 0 ? '無料' : ((product as any).shipping_fee ? `¥${(product as any).shipping_fee.toLocaleString()}` : '確認中')}
+        </Typography>
         
-        <Box>
+        {/* Stock status - in red */}
+        <Typography variant="body2" sx={{ color: 'error.main', mb: 1.5 }}>
+          在庫状況: {(product as any).availability === true ? 'あり' : ((product as any).availability === false ? 'なし' : '確認中')}
+        </Typography>
+        
+        <Box sx={{ mt: 'auto' }}>
           <Button
             component="a"
             href={product.url}
@@ -339,7 +492,7 @@ export default function ProductCard({ product }: ProductCardProps) {
             fullWidth
             startIcon={<FaExternalLinkAlt />}
           >
-            商品ページへ
+            商品ページ
           </Button>
         </Box>
       </CardContent>

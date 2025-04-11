@@ -239,15 +239,32 @@ export default function SearchForm({
       
       try {
         // Call the API to enhance keywords with custom prompt if enabled
-        const enhancedKeywords = await enhanceKeywords(
+        const response = await enhanceKeywords(
           modelNumbers, 
           showCustomPrompt && customPrompt ? customPrompt : undefined
         );
         
+        // Extract enhanced keywords from the response, which might have different formats
+        let enhancedKeywords: string[] = [];
+        
+        // Check if the response has a 'keywords' array (from /api/search/enhance-keywords)
+        if (response && response.keywords && Array.isArray(response.keywords)) {
+          enhancedKeywords = response.keywords;
+        }
+        // Check if the response has a 'results' array (from /api/search/batch-keywords)
+        else if (response && response.results && Array.isArray(response.results)) {
+          enhancedKeywords = response.results.map((result: { keyword?: string }) => 
+            result && typeof result === 'object' && 'keyword' in result ? result.keyword : ''
+          );
+        }
+        else {
+          throw new Error('Invalid response format from keyword enhancement API');
+        }
+
         // Map the original inputs with their enhanced keywords
         const keywordPairs = modelNumbers.map((original, index) => ({
           original,
-          enhanced: enhancedKeywords[index] || original
+          enhanced: enhancedKeywords[index] || original // Fallback to original if no enhanced keyword
         }));
         
         setPreviewKeywords(keywordPairs);
@@ -460,6 +477,13 @@ export default function SearchForm({
                   キーワードをプレビュー
                 </Button>
               )}
+            </Box>
+            
+            {/* Add information about JAN code search */}
+            <Box sx={{ mb: 2, backgroundColor: '#e3f2fd', p: 1, borderRadius: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                <strong>注意：</strong> 検索では型番からJANコードを自動的に取得して検索します。これにより、最も正確な製品情報を取得できます。
+              </Typography>
             </Box>
             
             {useAIEnhancement && (

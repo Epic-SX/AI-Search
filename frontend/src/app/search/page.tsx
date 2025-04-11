@@ -24,6 +24,8 @@ export default function SearchPage() {
   const [hasErrors, setHasErrors] = useState(false);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [statusPolling, setStatusPolling] = useState<NodeJS.Timeout | null>(null);
+  // Add a counter to force re-renders when necessary
+  const [refreshCounter, setRefreshCounter] = useState(0);
 
   // Calculate estimated time remaining based on progress
   useEffect(() => {
@@ -43,13 +45,29 @@ export default function SearchPage() {
     }
   }, [batchProgress, loading, startTime]);
 
+  // Force a refresh when batch results change
+  useEffect(() => {
+    if (batchResults && batchResults.length > 0) {
+      // Increment counter to force re-render
+      setRefreshCounter(prev => prev + 1);
+    }
+  }, [batchResults]);
+
   // Set up polling for batch status updates
   useEffect(() => {
     if (batchId && loading) {
+      console.log("Starting batch status polling for batch ID:", batchId);
+      
       // Start polling for status updates
       const intervalId = setInterval(async () => {
         try {
           const status = await checkBatchSearchStatus(batchId);
+          console.log("Batch status update:", {
+            processed: status.processed,
+            total: status.total,
+            completed: status.completed,
+            resultsCount: status.results?.length || 0
+          });
           
           // Update progress
           if (status.total && status.processed) {
@@ -59,20 +77,35 @@ export default function SearchPage() {
             });
           }
           
+          // Always update results if available, even if not completed
+          if (status.results && status.results.length > 0) {
+            // Normalize results to ensure detailed_products is always an array
+            const normalizedResults = status.results.map((result: SearchResult) => ({
+              ...result,
+              detailed_products: Array.isArray(result.detailed_products) ? result.detailed_products : []
+            }));
+            
+            // Force a deep clone to ensure React detects changes
+            setBatchResults(JSON.parse(JSON.stringify(normalizedResults)));
+          }
+          
           // Check if completed
           if (status.completed) {
+            console.log("Batch processing completed");
             setLoading(false);
             setBatchProgress(null);
             setEstimatedTime(null);
             
-            // Update results if available
+            // Final results update
             if (status.results && status.results.length > 0) {
               // Normalize results to ensure detailed_products is always an array
               const normalizedResults = status.results.map((result: SearchResult) => ({
                 ...result,
                 detailed_products: Array.isArray(result.detailed_products) ? result.detailed_products : []
               }));
-              setBatchResults(normalizedResults);
+              
+              // Force a deep clone to ensure React detects changes
+              setBatchResults(JSON.parse(JSON.stringify(normalizedResults)));
             }
             
             // Check for errors
@@ -157,6 +190,9 @@ export default function SearchPage() {
       if (useAI) {
         await enhancedBatchSearch(productInfoList, directSearch);
       } else {
+        // Always use JAN code search for batch search to be consistent with single search
+        const useJanCode = true;
+        
         // For large batches, we'll process in chunks and update progress
         if (productInfoList.length > 20) {
           // Process in chunks of 20
@@ -167,7 +203,7 @@ export default function SearchPage() {
           for (let i = 0; i < productInfoList.length; i += chunkSize) {
             const chunk = productInfoList.slice(i, i + chunkSize);
             try {
-              const results = await batchSearchByProductInfo(chunk, directSearch);
+              const results = await batchSearchByProductInfo(chunk, directSearch, useJanCode);
               
               // Check if we got a batch ID from localStorage (set by the API function)
               const storedBatchId = localStorage.getItem('last_batch_id');
@@ -210,16 +246,10 @@ export default function SearchPage() {
         } else {
           // For smaller batches, process all at once
           try {
-            const results = await batchSearchByProductInfo(productInfoList, directSearch);
+            const results = await batchSearchByProductInfo(productInfoList, directSearch, useJanCode);
             
             // Add debug logging
             console.log("Batch search API response:", results);
-            if (results && results.length > 0) {
-              console.log("First result detailed_products:", 
-                results[0].detailed_products ? 
-                `${results[0].detailed_products.length} items` : 
-                'undefined or empty');
-            }
             
             // Normalize results to ensure detailed_products is always an array
             const normalizedResults = results.map((result: SearchResult) => ({
@@ -227,12 +257,19 @@ export default function SearchPage() {
               detailed_products: Array.isArray(result.detailed_products) ? result.detailed_products : []
             }));
             
+            // Immediately set batch results to show something to the user
+            setBatchResults(JSON.parse(JSON.stringify(normalizedResults)));
+            
             // Check if we got a batch ID from localStorage
             const storedBatchId = localStorage.getItem('last_batch_id');
             if (storedBatchId) {
+              console.log("Using batch ID for status polling:", storedBatchId);
               setBatchId(storedBatchId);
-              // Let the polling handle updates
-              return;
+              // Even with polling, we've already set some initial results to display
+              // When polling updates complete, they'll refresh the display
+            } else {
+              // No batch ID, so this is the final result
+              console.log("No batch ID found, using direct results:", normalizedResults.length);
             }
             
             // Check for errors in the results
@@ -247,8 +284,6 @@ export default function SearchPage() {
             if (errorOccurred) {
               setHasErrors(true);
             }
-            
-            setBatchResults(normalizedResults);
           } catch (error) {
             console.error('Batch search error:', error);
             toast.error('一括検索中にエラーが発生しました');
@@ -275,16 +310,27 @@ export default function SearchPage() {
   // Enhanced batch search with AI enhancement
   const enhancedBatchSearch = async (productInfoList: string[], directSearch: boolean) => {
     try {
+      console.log("Starting enhanced batch search with AI for", productInfoList.length, "items");
       const results = await enhanceKeywords(productInfoList, "一括検索用");
       
       if (!results || !results.results || !Array.isArray(results.results)) {
         throw new Error('Invalid response from keyword enhancement');
       }
       
+      console.log("Keyword enhancement complete, processing", results.results.length, "items");
+      
       // Process results in chunks
       const enhancedResults: SearchResult[] = [];
       const chunkSize = 10;
       let errorOccurred = false;
+      // Always use JAN code search for batch search to be consistent with single search
+      const useJanCode = true;
+      
+      // If there are no results at all, show empty state
+      if (results.results.length === 0) {
+        setBatchResults([]);
+        return;
+      }
       
       for (let i = 0; i < results.results.length; i += chunkSize) {
         const chunk = results.results.slice(i, i + chunkSize);
@@ -295,15 +341,24 @@ export default function SearchPage() {
           const originalQuery = productInfoList[i + j] || item.model_number;
           
           try {
-            // Use the enhanced keywords for search
+            console.log(`Processing item ${i+j+1}/${results.results.length}: ${originalQuery}`);
+            // Use the enhanced keywords for search with JAN code support
             const searchResult = await searchByProductInfo(item.enhanced_keywords || item.model_number, directSearch);
             
             // Add original query to the result
-            enhancedResults.push({
+            const enhancedResult = {
               ...searchResult,
               product_info: originalQuery,
               keywords: [item.enhanced_keywords || item.model_number]
-            });
+            };
+            
+            enhancedResults.push(enhancedResult);
+            
+            // If this is the first result, immediately show it to the user
+            if (enhancedResults.length === 1) {
+              console.log("Setting initial result immediately");
+              setBatchResults(JSON.parse(JSON.stringify([enhancedResult])));
+            }
           } catch (error) {
             console.error(`Error searching for enhanced keywords for ${originalQuery}:`, error);
             errorOccurred = true;
@@ -324,10 +379,18 @@ export default function SearchPage() {
             total: results.results.length
           });
           
-          // Update results as we go
-          setBatchResults([...enhancedResults]);
+          // Update results as we go - make a deep clone to ensure React detects the change
+          // Only update every few items to avoid too many re-renders
+          if ((i + j + 1) % 3 === 0 || i + j + 1 === results.results.length) {
+            console.log(`Updating batch results with ${enhancedResults.length} items`);
+            setBatchResults(JSON.parse(JSON.stringify(enhancedResults)));
+          }
         }
       }
+      
+      // Final update with all results
+      console.log(`Final update: ${enhancedResults.length} items processed`);
+      setBatchResults(JSON.parse(JSON.stringify(enhancedResults)));
       
       if (errorOccurred) {
         setHasErrors(true);
@@ -456,7 +519,11 @@ export default function SearchPage() {
         )}
         
         {!loading && isBatchMode && batchResults.length > 0 && (
-          <BatchSearchResults results={batchResults} hasErrors={hasErrors} />
+          <BatchSearchResults 
+            results={batchResults} 
+            hasErrors={hasErrors} 
+            key={`batch-results-${refreshCounter}`} 
+          />
         )}
         
         {loading && isBatchMode && batchResults.length > 0 && (
@@ -465,7 +532,11 @@ export default function SearchPage() {
               一部の結果を表示しています。すべての検索が完了するまでお待ちください。
               {hasErrors && ' 一部のデータにエラーが発生していますが、処理を続行しています。'}
             </Alert>
-            <BatchSearchResults results={batchResults} hasErrors={hasErrors} />
+            <BatchSearchResults 
+              results={batchResults} 
+              hasErrors={hasErrors} 
+              key={`batch-results-loading-${refreshCounter}`} 
+            />
           </Box>
         )}
         

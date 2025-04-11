@@ -98,7 +98,7 @@ export default function BatchComparePage() {
     }
   };
 
-  // Function to export all comparisons to a single PDF
+  // Function to export all comparisons to a single PDF with product images
   const exportAllToPDF = async () => {
     if (comparisonResults.length === 0) {
       toast.error('エクスポートする比較結果がありません');
@@ -149,6 +149,44 @@ export default function BatchComparePage() {
         }
       };
       
+      // Helper function to safely add product images
+      const addProductImage = async (imageUrl: string, x: number, y: number, width: number, height: number): Promise<number> => {
+        if (!imageUrl) return y;
+        
+        try {
+          // Load image
+          return new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';  // Handle CORS
+            
+            img.onload = () => {
+              try {
+                // Add image to PDF
+                doc.addImage(img, 'JPEG', x, y, width, height);
+                resolve(y + height);
+              } catch (e) {
+                console.error('Error adding image to PDF:', e);
+                resolve(y);
+              }
+            };
+            
+            img.onerror = () => {
+              console.error('Error loading image:', imageUrl);
+              resolve(y);
+            };
+            
+            // Set src after event handlers
+            img.src = imageUrl;
+            
+            // If image takes too long, resolve anyway
+            setTimeout(() => resolve(y), 2000);
+          });
+        } catch (e) {
+          console.error('Error in addProductImage:', e);
+          return y;
+        }
+      };
+      
       // Add title
       doc.setFontSize(18);
       safeAddText('商品比較一括レポート', 105, 15, { align: 'center' });
@@ -162,42 +200,157 @@ export default function BatchComparePage() {
         
         // Add comparison header
         doc.setFontSize(14);
-        safeAddText(`比較 ${i + 1}: ${result.product_a.title} vs ${result.product_b.title}`, 14, yPosition);
+        const headerText = `比較 ${i + 1}`;
+        safeAddText(headerText, 14, yPosition);
         doc.setFontSize(12);
         yPosition += 10;
         
-        // Add product information
-        safeAddText(`商品A: ${result.product_a.title}`, 20, yPosition);
-        yPosition += 7;
-        safeAddText(`価格: ¥${(result.product_a.price || 0).toLocaleString()}`, 25, yPosition);
-        yPosition += 7;
-        safeAddText(`ストア: ${result.product_a.store || ''}`, 25, yPosition);
-        yPosition += 10;
+        // Create a 2-column layout for products
+        const colWidth = 85;
+        const leftColX = 15;
+        const rightColX = 110;
+        let leftColY = yPosition;
+        let rightColY = yPosition;
         
-        safeAddText(`商品B: ${result.product_b.title}`, 20, yPosition);
-        yPosition += 7;
-        safeAddText(`価格: ¥${(result.product_b.price || 0).toLocaleString()}`, 25, yPosition);
-        yPosition += 7;
-        safeAddText(`ストア: ${result.product_b.store || ''}`, 25, yPosition);
-        yPosition += 15;
+        // Add product A information (left column)
+        doc.setFillColor(240, 240, 240);
+        doc.rect(leftColX, leftColY, colWidth, 8, 'F');
+        doc.setFontSize(11);
+        safeAddText(`商品A: ${result.product_a.title}`, leftColX + 2, leftColY + 5);
+        leftColY += 10;
         
-        // Add differences table
-        const tableData = result.differences.map(diff => [
-          diff.category,
-          diff.product_a_value,
-          diff.product_b_value,
-          diff.significance === 'high' ? '高' : diff.significance === 'medium' ? '中' : '低'
-        ]);
+        // Add product A image if available
+        if (result.product_a.image_url) {
+          const imageWidth = 50;
+          const imageHeight = 50;
+          try {
+            leftColY = await addProductImage(result.product_a.image_url, leftColX + 15, leftColY, imageWidth, imageHeight);
+            leftColY += 5;
+          } catch (e) {
+            console.error('Error adding product A image:', e);
+            leftColY += 5;
+          }
+        }
         
-        // Add table to PDF using autoTable with font configuration
+        // Add product A details
+        doc.setFontSize(10);
+        safeAddText(`価格: ¥${(result.product_a.price || 0).toLocaleString()}`, leftColX + 5, leftColY);
+        leftColY += 6;
+        safeAddText(`ストア: ${result.product_a.store || ''}`, leftColX + 5, leftColY);
+        leftColY += 10;
+        
+        // Add product B information (right column)
+        doc.setFillColor(240, 240, 240);
+        doc.rect(rightColX, rightColY, colWidth, 8, 'F');
+        doc.setFontSize(11);
+        safeAddText(`商品B: ${result.product_b.title}`, rightColX + 2, rightColY + 5);
+        rightColY += 10;
+        
+        // Add product B image if available
+        if (result.product_b.image_url) {
+          const imageWidth = 50;
+          const imageHeight = 50;
+          try {
+            rightColY = await addProductImage(result.product_b.image_url, rightColX + 15, rightColY, imageWidth, imageHeight);
+            rightColY += 5;
+          } catch (e) {
+            console.error('Error adding product B image:', e);
+            rightColY += 5;
+          }
+        }
+        
+        // Add product B details
+        doc.setFontSize(10);
+        safeAddText(`価格: ¥${(result.product_b.price || 0).toLocaleString()}`, rightColX + 5, rightColY);
+        rightColY += 6;
+        safeAddText(`ストア: ${result.product_b.store || ''}`, rightColX + 5, rightColY);
+        rightColY += 10;
+        
+        // Set position for differences table - use the maximum Y position from both columns
+        yPosition = Math.max(leftColY, rightColY) + 10;
+        
+        // Add differences section header
+        doc.setFontSize(12);
+        doc.setFillColor(66, 139, 202);
+        doc.setTextColor(255, 255, 255);
+        doc.rect(15, yPosition, 180, 8, 'F');
+        safeAddText('商品の比較結果', 105, yPosition + 5, { align: 'center' });
+        doc.setTextColor(0, 0, 0);
+        yPosition += 12;
+        
+        // Filter differences by significance for better organization
+        const highDiffs = result.differences.filter(d => d.significance === 'high');
+        const mediumDiffs = result.differences.filter(d => d.significance === 'medium');
+        const lowDiffs = result.differences.filter(d => d.significance === 'low');
+        
+        // Organize table data by significance
+        const tableData = [
+          // Add header row for high significance differences
+          ...(highDiffs.length > 0 ? [['【重要な違い】', '', '', '']] : []),
+          ...highDiffs.map(diff => [
+            diff.category,
+            diff.product_a_value,
+            diff.product_b_value,
+            '高'
+          ]),
+          
+          // Add header row for medium significance differences
+          ...(mediumDiffs.length > 0 ? [['【中程度の違い】', '', '', '']] : []),
+          ...mediumDiffs.map(diff => [
+            diff.category,
+            diff.product_a_value,
+            diff.product_b_value,
+            '中'
+          ]),
+          
+          // Add header row for low significance differences
+          ...(lowDiffs.length > 0 ? [['【その他の違い】', '', '', '']] : []),
+          ...lowDiffs.map(diff => [
+            diff.category,
+            diff.product_a_value,
+            diff.product_b_value,
+            '低'
+          ])
+        ];
+        
+        // Style for header rows in the table
+        const isHeaderRow = (row: number) => {
+          const text = tableData[row][0];
+          return text.startsWith('【') && text.endsWith('】');
+        };
+        
+        // Add combined table to PDF
         autoTable(doc, {
           startY: yPosition,
           head: [['カテゴリ', '商品A', '商品B', '重要度']],
           body: tableData,
           theme: 'grid',
-          headStyles: { fillColor: [66, 139, 202], font: 'Noto Sans JP' },
+          headStyles: { 
+            fillColor: [66, 139, 202], 
+            font: 'Noto Sans JP',
+            textColor: [255, 255, 255]
+          },
+          didParseCell: (data) => {
+            // Style header rows
+            if (data.row.index >= 0 && isHeaderRow(data.row.index)) {
+              data.cell.styles.fillColor = [230, 230, 230];
+              data.cell.styles.fontStyle = 'bold';
+              if (data.column.index === 0) {
+                data.cell.colSpan = 4;
+                data.cell.styles.halign = 'left';
+              } else {
+                data.cell.text = [''];
+              }
+            }
+          },
           bodyStyles: { font: 'Noto Sans JP' },
-          styles: { font: 'Noto Sans JP' }
+          styles: { font: 'Noto Sans JP' },
+          columnStyles: {
+            0: { cellWidth: 30 },
+            1: { cellWidth: 70 },
+            2: { cellWidth: 70 },
+            3: { cellWidth: 15 }
+          }
         });
         
         // Get the final Y position after the table
@@ -205,11 +358,15 @@ export default function BatchComparePage() {
         
         // Add recommendation if available
         if (result.recommendation) {
-          safeAddText('おすすめ:', 14, yPosition);
-          yPosition += 7;
+          doc.setFillColor(245, 245, 220); // Light yellow background
+          doc.rect(15, yPosition, 180, 10, 'F');
+          doc.setFontSize(11);
+          safeAddText('おすすめ:', 15 + 2, yPosition + 7);
+          yPosition += 12;
           
           // Split recommendation text to fit page width
-          const splitText = doc.splitTextToSize(result.recommendation, 180);
+          doc.setFontSize(10);
+          const splitText = doc.splitTextToSize(result.recommendation, 175);
           for (let j = 0; j < splitText.length; j++) {
             safeAddText(splitText[j], 20, yPosition + (j * 7));
           }

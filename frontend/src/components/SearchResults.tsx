@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { SearchResult, ProductInfo } from '@/types';
 import { FaExternalLinkAlt, FaStar, FaAmazon, FaDownload, FaCheck } from 'react-icons/fa';
-import { SiRakuten, SiYahoo } from 'react-icons/si';
+import { SiRakuten, SiYahoo, SiGoogle } from 'react-icons/si';
 import { 
   Grid, Typography, Card, CardContent, CardMedia, Box, Chip, Divider, 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, 
@@ -129,6 +129,8 @@ export default function SearchResults({ results }: SearchResultsProps) {
         if (product.url.includes('amazon')) return 'Amazon';
         if (product.url.includes('rakuten.co.jp') || product.url.includes('r10s.jp')) return '楽天市場';
         if (product.url.includes('yahoo')) return 'Yahoo!ショッピング';
+        if (product.url.includes('google.com/shopping')) return 'Google Shopping';
+        if (product.url.includes('google.com/ads')) return 'Google Ads';
       }
     }
     
@@ -139,6 +141,10 @@ export default function SearchResults({ results }: SearchResultsProps) {
       return '楽天市場';
     } else if (lowerStoreName.includes('yahoo') || lowerStoreName.includes('ヤフー')) {
       return 'Yahoo!ショッピング';
+    } else if (lowerStoreName.includes('google shopping') || lowerStoreName.includes('googleshopping')) {
+      return 'Google Shopping';
+    } else if (lowerStoreName.includes('google ads') || lowerStoreName.includes('googleads')) {
+      return 'Google Ads';
     } else {
       return name || UNKNOWN_STORE;
     }
@@ -149,6 +155,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
     if (lowerStoreName.includes('amazon')) return 'Amazon';
     if (lowerStoreName.includes('rakuten') || lowerStoreName.includes('楽天')) return 'Rakuten';
     if (lowerStoreName.includes('yahoo') || lowerStoreName.includes('ヤフー')) return 'Yahoo';
+    if (lowerStoreName.includes('google')) return 'Google';
     return 'Shop';
   };
 
@@ -157,6 +164,8 @@ export default function SearchResults({ results }: SearchResultsProps) {
     if (lowerStoreName.includes('amazon')) return '#FF9900';
     if (lowerStoreName.includes('rakuten')) return '#BF0000';
     if (lowerStoreName.includes('yahoo')) return '#6001D2';
+    if (lowerStoreName.includes('google shopping')) return '#4285F4';
+    if (lowerStoreName.includes('google ads')) return '#34A853';
     return '#666666';
   };
 
@@ -264,13 +273,15 @@ export default function SearchResults({ results }: SearchResultsProps) {
   // Group products by source
   const groupedProducts = useMemo(() => {
     if (!results.detailed_products || results.detailed_products.length === 0) {
-      return { amazon: [], rakuten: [], yahoo: [], other: [] };
+      return { amazon: [], rakuten: [], yahoo: [], googleShopping: [], googleAds: [], other: [] };
     }
     
     const grouped = {
       amazon: [] as ProductInfo[],
       rakuten: [] as ProductInfo[],
       yahoo: [] as ProductInfo[],
+      googleShopping: [] as ProductInfo[],
+      googleAds: [] as ProductInfo[],
       other: [] as ProductInfo[]
     };
     
@@ -289,6 +300,12 @@ export default function SearchResults({ results }: SearchResultsProps) {
         } else if (source.includes('yahoo') || source.includes('ヤフー')) {
           grouped.yahoo.push(product);
           return;
+        } else if (source.includes('google shopping') || source.includes('googleshopping')) {
+          grouped.googleShopping.push(product);
+          return;
+        } else if (source.includes('google ads') || source.includes('googleads')) {
+          grouped.googleAds.push(product);
+          return;
         }
       }
       
@@ -301,6 +318,10 @@ export default function SearchResults({ results }: SearchResultsProps) {
           product.store = '楽天市場';
         } else if (product.url && product.url.includes('yahoo')) {
           product.store = 'Yahoo!ショッピング';
+        } else if (product.url && product.url.includes('google') && product.url.includes('shopping')) {
+          product.store = 'Google Shopping';
+        } else if (product.url && product.url.includes('google') && product.url.includes('ads')) {
+          product.store = 'Google Ads';
         }
       }
       
@@ -316,6 +337,12 @@ export default function SearchResults({ results }: SearchResultsProps) {
         } else if (storeName.includes('yahoo') || storeName.includes('ヤフー')) {
           grouped.yahoo.push(product);
           return;
+        } else if (storeName.includes('google shopping') || storeName.includes('googleshopping')) {
+          grouped.googleShopping.push(product);
+          return;
+        } else if (storeName.includes('google ads') || storeName.includes('googleads')) {
+          grouped.googleAds.push(product);
+          return;
         }
       }
       
@@ -330,6 +357,12 @@ export default function SearchResults({ results }: SearchResultsProps) {
         } else if (product.url.includes('yahoo')) {
           grouped.yahoo.push(product);
           return;
+        } else if (product.url.includes('google.com/shopping')) {
+          grouped.googleShopping.push(product);
+          return;
+        } else if (product.url.includes('google.com/ads')) {
+          grouped.googleAds.push(product);
+          return;
         }
       }
       
@@ -342,6 +375,8 @@ export default function SearchResults({ results }: SearchResultsProps) {
       amazon: grouped.amazon.length,
       rakuten: grouped.rakuten.length,
       yahoo: grouped.yahoo.length,
+      googleShopping: grouped.googleShopping.length,
+      googleAds: grouped.googleAds.length,
       other: grouped.other.length
     });
     
@@ -392,6 +427,22 @@ export default function SearchResults({ results }: SearchResultsProps) {
         newSelectedProducts[productId] = checked;
       });
     
+    // Update Google Shopping products - only those that are displayed
+    groupedProducts.googleShopping
+      .slice(0, PRODUCTS_PER_SOURCE)
+      .forEach((product, index) => {
+        const productId = getProductId(product, 'googleShopping', index);
+        newSelectedProducts[productId] = checked;
+      });
+    
+    // Update Google Ads products - only those that are displayed
+    groupedProducts.googleAds
+      .slice(0, PRODUCTS_PER_SOURCE)
+      .forEach((product, index) => {
+        const productId = getProductId(product, 'googleAds', index);
+        newSelectedProducts[productId] = checked;
+      });
+    
     setSelectedProducts(newSelectedProducts);
   };
   
@@ -434,6 +485,28 @@ export default function SearchResults({ results }: SearchResultsProps) {
         }
       });
     
+    // Check Google Shopping products - only those that are displayed
+    groupedProducts.googleShopping
+      .slice(0, PRODUCTS_PER_SOURCE)
+      .forEach((product, index) => {
+        hasProducts = true;
+        const productId = getProductId(product, 'googleShopping', index);
+        if (!selectedProducts[productId]) {
+          allSelected = false;
+        }
+      });
+    
+    // Check Google Ads products - only those that are displayed
+    groupedProducts.googleAds
+      .slice(0, PRODUCTS_PER_SOURCE)
+      .forEach((product, index) => {
+        hasProducts = true;
+        const productId = getProductId(product, 'googleAds', index);
+        if (!selectedProducts[productId]) {
+          allSelected = false;
+        }
+      });
+    
     return hasProducts && allSelected;
   };
   
@@ -443,8 +516,10 @@ export default function SearchResults({ results }: SearchResultsProps) {
     const amazonCount = Math.min(groupedProducts.amazon.filter(product => product.price !== undefined && product.price > 0).length, PRODUCTS_PER_SOURCE);
     const rakutenCount = Math.min(groupedProducts.rakuten.length, PRODUCTS_PER_SOURCE);
     const yahooCount = Math.min(groupedProducts.yahoo.length, PRODUCTS_PER_SOURCE);
+    const googleShoppingCount = Math.min(groupedProducts.googleShopping.length, PRODUCTS_PER_SOURCE);
+    const googleAdsCount = Math.min(groupedProducts.googleAds.length, PRODUCTS_PER_SOURCE);
     
-    return amazonCount + rakutenCount + yahooCount;
+    return amazonCount + rakutenCount + yahooCount + googleShoppingCount + googleAdsCount;
   };
   
   // Count selected products
@@ -515,33 +590,45 @@ export default function SearchResults({ results }: SearchResultsProps) {
     return null;
   };
 
+  // Function to display stock status
+  const renderStockStatus = (product: ProductInfo) => {
+    if (product.availability === true) {
+      return <Chip size="small" label="在庫あり" color="success" sx={{ fontSize: '0.7rem', height: 20, mr: 0.5 }} />;
+    } else if (product.availability === false) {
+      return <Chip size="small" label="在庫なし" color="error" sx={{ fontSize: '0.7rem', height: 20, mr: 0.5 }} />;
+    } else if (product.stock_status) {
+      return <Chip size="small" label={product.stock_status} color="primary" sx={{ fontSize: '0.7rem', height: 20, mr: 0.5 }} />;
+    } else {
+      return <Chip size="small" label="在庫状況不明" color="default" sx={{ fontSize: '0.7rem', height: 20, opacity: 0.7, mr: 0.5 }} />;
+    }
+  };
+
+  // Function to display shipping fee
+  const renderShippingFee = (product: ProductInfo) => {
+    if (product.shipping_fee === 0) {
+      return <Chip size="small" label="送料無料" color="secondary" sx={{ fontSize: '0.7rem', height: 20, mr: 0.5 }} />;
+    } else if (product.shipping_fee !== undefined && product.shipping_fee !== null) {
+      return <Chip size="small" label={`送料 ${formatPrice(product.shipping_fee)}円`} color="default" sx={{ fontSize: '0.7rem', height: 20, mr: 0.5 }} />;
+    } else {
+      return <Chip size="small" label="送料不明" color="default" sx={{ fontSize: '0.7rem', height: 20, opacity: 0.7, mr: 0.5 }} />;
+    }
+  };
+
   // Render the component
   return (
-    <Box sx={{ mt: 4 }}>
-      {/* Debug information - only visible in development */}
-      
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" gutterBottom>
-          検索キーワード
+    <Box sx={{ mt: 3 }}>
+      {/* Search keyword display banner */}
+      <Box sx={{ 
+        display: 'flex', 
+        mb: 3,
+        borderLeft: '4px solid #1976d2',
+        pl: 2,
+        py: 1,
+        bgcolor: '#f5f5f5'
+      }}>
+        <Typography variant="h6" component="div">
+          検索キーワード: <strong>{results.product_info || (results.keywords && results.keywords.length > 0 ? results.keywords[0] : '')}</strong>
         </Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {results.keywords.map((keyword, index) => (
-            <Chip 
-              key={index} 
-              label={keyword} 
-              color="primary" 
-              variant="outlined" 
-              size="medium"
-            />
-          ))}
-        </Box>
-        {results.jan_code && (
-          <Box sx={{ mt: 1 }}>
-            <Typography variant="body2" color="text.secondary">
-              <strong>JAN Code:</strong> {results.jan_code} を使用して検索しました
-            </Typography>
-          </Box>
-        )}
       </Box>
 
       {results.detailed_products && results.detailed_products.length > 0 && (
@@ -708,7 +795,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
                       )}
                     </TableCell>
                     <TableCell sx={{ verticalAlign: 'middle' }}>
-                      <Typography variant="body1" fontWeight="bold" color="primary">
+                      <Typography variant="body1" fontWeight="bold" color="error">
                         ¥{formatPrice(item.price)} <Typography component="span" variant="caption" color="text.secondary">(税込)</Typography>
                       </Typography>
                     </TableCell>
@@ -771,27 +858,38 @@ export default function SearchResults({ results }: SearchResultsProps) {
       {/* New Side-by-Side Comparison View */}
       {hasDetailedProducts && (
         <Box sx={{ mb: 4 }}>
+          <Typography variant="h5" component="div" gutterBottom sx={{ 
+            mb: 2, 
+            fontWeight: 'bold', 
+            display: 'flex',
+            alignItems: 'center',
+            '&::before': {
+              content: '""',
+              display: 'block',
+              width: '3px',
+              height: '20px',
+              backgroundColor: '#1976d2',
+              marginRight: '8px'
+            }
+          }}>
+            ECサイト別商品比較
+          </Typography>
+          
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Typography variant="h5" gutterBottom sx={{ mb: 0 }}>
-                ECサイト別商品比較
-              </Typography>
-              
-              <Box sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
-                <Checkbox 
-                  checked={areAllProductsSelected()}
-                  onChange={(e) => handleSelectAll(e.target.checked)}
-                  sx={{ 
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <Checkbox 
+                checked={areAllProductsSelected()}
+                onChange={(e) => handleSelectAll(e.target.checked)}
+                sx={{ 
+                  color: 'primary.main',
+                  '&.Mui-checked': {
                     color: 'primary.main',
-                    '&.Mui-checked': {
-                      color: 'primary.main',
-                    }
-                  }}
-                />
-                <Typography variant="body2">
-                  全て選択 ({getSelectedProductCount()}/{getTotalProductCount()})
-                </Typography>
-              </Box>
+                  }
+                }}
+              />
+              <Typography variant="body2">
+                全て選択 ({getSelectedProductCount()}/{getTotalProductCount()})
+              </Typography>
             </Box>
             
             {/* Download all selected products button - keep only CSV */}
@@ -840,6 +938,28 @@ export default function SearchResults({ results }: SearchResultsProps) {
                       }
                     });
                     
+                    // Check Google Shopping products
+                    groupedProducts.googleShopping.forEach((product, index) => {
+                      const productId = getProductId(product, 'googleShopping', index);
+                      if (selectedProducts[productId]) {
+                        selectedProductsData.push({
+                          ...product,
+                          store: 'Google Shopping'
+                        });
+                      }
+                    });
+                    
+                    // Check Google Ads products
+                    groupedProducts.googleAds.forEach((product, index) => {
+                      const productId = getProductId(product, 'googleAds', index);
+                      if (selectedProducts[productId]) {
+                        selectedProductsData.push({
+                          ...product,
+                          store: 'Google Ads'
+                        });
+                      }
+                    });
+                    
                     // Download as CSV
                     downloadMultipleProductsAsCSV(selectedProductsData, getDisplayStoreName);
                   }}
@@ -854,9 +974,9 @@ export default function SearchResults({ results }: SearchResultsProps) {
             <br />
             ※ APIを通じて取得できないデータは除外されています。
           </Typography>
-          <Grid container spacing={2}>
+          <Grid container spacing={1}>
             {/* Amazon Column */}
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={2.4}>
               <Box sx={{ 
                 bgcolor: '#f8f8f8', 
                 borderRadius: 2, 
@@ -868,16 +988,16 @@ export default function SearchResults({ results }: SearchResultsProps) {
                 <Box sx={{ 
                   bgcolor: '#FF9900', 
                   color: 'white', 
-                  p: 1, 
+                  p: 0.5, 
                   display: 'flex', 
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 1
+                  gap: 0.5
                 }}>
-                  <FaAmazon size={24} />
-                  <Typography variant="h6">Amazon.co.jp</Typography>
+                  <FaAmazon size={20} />
+                  <Typography variant="subtitle1">Amazon.co.jp</Typography>
                 </Box>
-                <Box sx={{ p: 2, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ p: 1, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                   {groupedProducts.amazon.length > 0 ? (
                     groupedProducts.amazon
                       .filter(product => product.price !== undefined && product.price > 0)
@@ -891,15 +1011,15 @@ export default function SearchResults({ results }: SearchResultsProps) {
                           key={index} 
                           onClick={() => handleProductSelect(productId)}
                           sx={{ 
-                            mb: 2, 
-                            p: 2, 
+                            mb: 1.5, 
+                            p: 1, 
                             bgcolor: 'white', 
                             borderRadius: 1,
                             boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                             '&:last-child': { mb: 0 },
                             position: 'relative',
                             border: isSelected ? '2px solid #FF9900' : '1px solid #eee',
-                            minHeight: '180px',
+                            minHeight: '160px',
                             display: 'flex',
                             flexDirection: 'column',
                             '&:hover': {
@@ -941,88 +1061,99 @@ export default function SearchResults({ results }: SearchResultsProps) {
                               }}
                             />
                           </Box>
-                          <Box sx={{ display: 'flex', gap: 2, mb: 1, flex: '1 0 auto' }}>
-                            <Box
-                              component="img"
-                              src={imageErrors[`amazon-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
-                              alt={product.title || '商品画像'}
-                              onError={() => handleImageError(`amazon-${index}`)}
-                              sx={{ 
-                                width: 80, 
-                                height: 80, 
-                                objectFit: 'contain',
-                                border: '1px solid #eee',
-                                borderRadius: 1,
-                                p: 1
-                              }}
-                            />
-                            <Box sx={{ flex: 1 }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <Box sx={{ mb: 1.5 }}>
                               <Tooltip title={product.title || ''} arrow placement="top">
                                 <Typography 
                                   variant="subtitle2" 
                                   sx={{ 
-                                    fontWeight: 'medium', 
-                                    mb: 1,
+                                    fontWeight: 'medium',
+                                    width: '100%',
                                     display: '-webkit-box', 
-                                    WebkitLineClamp: 2,
+                                    WebkitLineClamp: 3,
                                     WebkitBoxOrient: 'vertical',
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
                                     lineHeight: 1.2,
-                                    height: '2.4em',
-                                    fontSize: '0.875rem'
+                                    minHeight: '3.6em',
+                                    fontSize: '0.875rem',
+                                    color: '#1976d2'
                                   }}
                                 >
                                   {product.title}
                                   {renderJanBadge(product)}
                                 </Typography>
                               </Tooltip>
-                              <Typography variant="h6" color="#FF9900" fontWeight="bold">
-                                {formatPrice(product.price)}円
-                              </Typography>
                             </Box>
-                          </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
-                            <Button
-                              component="a"
-                              href={product.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              variant="outlined"
-                              size="small"
-                              onClick={(e) => e.stopPropagation()}
-                              sx={{ 
-                                color: '#FF9900', 
-                                borderColor: '#FF9900',
-                                '&:hover': {
-                                  borderColor: '#FF9900',
-                                  bgcolor: 'rgba(255, 153, 0, 0.04)'
-                                }
-                              }}
-                            >
-                              商品ページ
-                            </Button>
-                            {isSelected && (
-                              <Box sx={{ display: 'flex', gap: 1 }}>
-                                <Button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    downloadProductInfoAsCSV(product, getDisplayStoreName);
-                                  }}
-                                  variant="contained"
-                                  size="small"
-                                  startIcon={<FaDownload />}
-                                  sx={{ 
-                                    bgcolor: '#FF9900',
-                                    '&:hover': {
-                                      bgcolor: '#E68A00'
-                                    }
-                                  }}
-                                >
-                                  CSV
-                                </Button>
+
+                            <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                              <Box
+                                component="img"
+                                src={imageErrors[`amazon-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
+                                alt={product.title || '商品画像'}
+                                onError={() => handleImageError(`amazon-${index}`)}
+                                sx={{ 
+                                  width: 60, 
+                                  height: 60, 
+                                  objectFit: 'contain',
+                                  border: '1px solid #eee',
+                                  borderRadius: 1,
+                                  p: 0.5
+                                }}
+                              />
+                              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                <Typography variant="h6" color="error" fontWeight="bold">
+                                  {formatPrice(product.price)}円
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 'auto' }}>
+                                  {renderStockStatus(product)}
+                                  {renderShippingFee(product)}
+                                </Box>
                               </Box>
-                            )}
+                            </Box>
+
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
+                              <Button
+                                component="a"
+                                href={product.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                variant="outlined"
+                                size="small"
+                                onClick={(e) => e.stopPropagation()}
+                                sx={{ 
+                                  color: '#FF9900', 
+                                  borderColor: '#FF9900',
+                                  '&:hover': {
+                                    borderColor: '#FF9900',
+                                    bgcolor: 'rgba(255, 153, 0, 0.04)'
+                                  }
+                                }}
+                              >
+                                商品ページ
+                              </Button>
+                              {isSelected && (
+                                <Box sx={{ display: 'flex', gap: 1 }}>
+                                  <Button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      downloadProductInfoAsCSV(product, getDisplayStoreName);
+                                    }}
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={<FaDownload />}
+                                    sx={{ 
+                                      bgcolor: '#FF9900',
+                                      '&:hover': {
+                                        bgcolor: '#E68A00'
+                                      }
+                                    }}
+                                  >
+                                    CSV
+                                  </Button>
+                                </Box>
+                              )}
+                            </Box>
                           </Box>
                         </Box>
                         );
@@ -1042,7 +1173,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
             </Grid>
             
             {/* Rakuten Column */}
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={2.4}>
               <Box sx={{ 
                 bgcolor: '#f8f8f8', 
                 borderRadius: 2, 
@@ -1054,16 +1185,16 @@ export default function SearchResults({ results }: SearchResultsProps) {
                 <Box sx={{ 
                   bgcolor: '#BF0000', 
                   color: 'white', 
-                  p: 1, 
+                  p: 0.5, 
                   display: 'flex', 
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 1
+                  gap: 0.5
                 }}>
-                  <SiRakuten size={24} />
-                  <Typography variant="h6">楽天市場</Typography>
+                  <SiRakuten size={20} />
+                  <Typography variant="subtitle1">楽天市場</Typography>
                 </Box>
-                <Box sx={{ p: 2, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ p: 1, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                   {groupedProducts.rakuten.length > 0 ? (
                     groupedProducts.rakuten.slice(0, PRODUCTS_PER_SOURCE).map((product, index) => {
                       const productId = getProductId(product, 'rakuten', index);
@@ -1074,15 +1205,15 @@ export default function SearchResults({ results }: SearchResultsProps) {
                         key={index} 
                         onClick={() => handleProductSelect(productId)}
                         sx={{ 
-                          mb: 2, 
-                          p: 2, 
+                          mb: 1.5, 
+                          p: 1, 
                           bgcolor: 'white', 
                           borderRadius: 1,
                           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                           '&:last-child': { mb: 0 },
                           position: 'relative',
                           border: isSelected ? '2px solid #BF0000' : '1px solid #eee',
-                          minHeight: '180px',
+                          minHeight: '160px',
                           display: 'flex',
                           flexDirection: 'column',
                           '&:hover': {
@@ -1124,80 +1255,91 @@ export default function SearchResults({ results }: SearchResultsProps) {
                             }}
                           />
                         </Box>
-                        <Box sx={{ display: 'flex', gap: 2, mb: 1, flex: '1 0 auto' }}>
-                          <SimpleRakutenImage
-                            imageUrl={product.image_url || ''}
-                            title={product.title}
-                            height={80}
-                            width={80}
-                          />
-                          <Box sx={{ flex: 1 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                          <Box sx={{ mb: 1.5 }}>
                             <Tooltip title={product.title || ''} arrow placement="top">
                               <Typography 
                                 variant="subtitle2" 
                                 sx={{ 
-                                  fontWeight: 'medium', 
-                                  mb: 1,
+                                  fontWeight: 'medium',
+                                  width: '100%',
                                   display: '-webkit-box', 
-                                  WebkitLineClamp: 2,
+                                  WebkitLineClamp: 3,
                                   WebkitBoxOrient: 'vertical',
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                   lineHeight: 1.2,
-                                  height: '2.4em',
-                                  fontSize: '0.875rem'
+                                  minHeight: '3.6em',
+                                  fontSize: '0.875rem',
+                                  color: '#1976d2'
                                 }}
                               >
                                 {product.title}
                                 {renderJanBadge(product)}
                               </Typography>
                             </Tooltip>
-                            <Typography variant="h6" color="#BF0000" fontWeight="bold">
-                              {formatPrice(product.price)}円
-                            </Typography>
                           </Box>
-                        </Box>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
-                          <Button
-                            component="a"
-                            href={product.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            variant="outlined"
-                            size="small"
-                            onClick={(e) => e.stopPropagation()}
-                            sx={{ 
-                              color: '#BF0000', 
-                              borderColor: '#BF0000',
-                              '&:hover': {
-                                borderColor: '#BF0000',
-                                bgcolor: 'rgba(191, 0, 0, 0.04)'
-                              }
-                            }}
-                          >
-                            商品ページ
-                          </Button>
-                          {isSelected && (
-                            <Box sx={{ display: 'flex', gap: 1 }}>
-                              <Button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  downloadProductInfoAsCSV(product, getDisplayStoreName);
-                                }}
-                                variant="contained"
-                                size="small"
-                                startIcon={<FaDownload />}
-                                sx={{ 
-                                  bgcolor: '#BF0000',
-                                  '&:hover': {
-                                    bgcolor: '#A00000'
-                                  }
-                                }}
-                              >
-                                CSV
-                              </Button>
+
+                          <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                            <SimpleRakutenImage
+                              imageUrl={product.image_url || ''}
+                              title={product.title}
+                              height={60}
+                              width={60}
+                            />
+                            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                              <Typography variant="h6" color="error" fontWeight="bold">
+                                {formatPrice(product.price)}円
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 'auto' }}>
+                                {renderStockStatus(product)}
+                                {renderShippingFee(product)}
+                              </Box>
                             </Box>
-                          )}
+                          </Box>
+
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
+                            <Button
+                              component="a"
+                              href={product.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              variant="outlined"
+                              size="small"
+                              onClick={(e) => e.stopPropagation()}
+                              sx={{ 
+                                color: '#BF0000', 
+                                borderColor: '#BF0000',
+                                '&:hover': {
+                                  borderColor: '#BF0000',
+                                  bgcolor: 'rgba(191, 0, 0, 0.04)'
+                                }
+                              }}
+                            >
+                              商品ページ
+                            </Button>
+                            {isSelected && (
+                              <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadProductInfoAsCSV(product, getDisplayStoreName);
+                                  }}
+                                  variant="contained"
+                                  size="small"
+                                  startIcon={<FaDownload />}
+                                  sx={{ 
+                                    bgcolor: '#BF0000',
+                                    '&:hover': {
+                                      bgcolor: '#A00000'
+                                    }
+                                  }}
+                                >
+                                  CSV
+                                </Button>
+                              </Box>
+                            )}
+                          </Box>
                         </Box>
                       </Box>
                       );
@@ -1219,7 +1361,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
             </Grid>
             
             {/* Yahoo Column */}
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={2.4}>
               <Box sx={{ 
                 bgcolor: '#f8f8f8', 
                 borderRadius: 2, 
@@ -1231,16 +1373,16 @@ export default function SearchResults({ results }: SearchResultsProps) {
                 <Box sx={{ 
                   bgcolor: '#6001D2', 
                   color: 'white', 
-                  p: 1, 
+                  p: 0.5, 
                   display: 'flex', 
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 1
+                  gap: 0.5
                 }}>
-                  <SiYahoo size={24} />
-                  <Typography variant="h6">Yahoo!ショッピング</Typography>
+                  <SiYahoo size={20} />
+                  <Typography variant="subtitle1">Yahoo!ショッピング</Typography>
                 </Box>
-                <Box sx={{ p: 2, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ p: 1, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                   {groupedProducts.yahoo.length > 0 ? (
                     groupedProducts.yahoo.slice(0, PRODUCTS_PER_SOURCE).map((product, index) => {
                       const productId = getProductId(product, 'yahoo', index);
@@ -1251,15 +1393,15 @@ export default function SearchResults({ results }: SearchResultsProps) {
                         key={index} 
                         onClick={() => handleProductSelect(productId)}
                         sx={{ 
-                          mb: 2, 
-                          p: 2, 
+                          mb: 1.5, 
+                          p: 1, 
                           bgcolor: 'white', 
                           borderRadius: 1,
                           boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                           '&:last-child': { mb: 0 },
                           position: 'relative',
                           border: isSelected ? '2px solid #6001D2' : '1px solid #eee',
-                          minHeight: '180px',
+                          minHeight: '160px',
                           display: 'flex',
                           flexDirection: 'column',
                           '&:hover': {
@@ -1301,88 +1443,99 @@ export default function SearchResults({ results }: SearchResultsProps) {
                             }}
                           />
                         </Box>
-                        <Box sx={{ display: 'flex', gap: 2, mb: 1, flex: '1 0 auto' }}>
-                          <Box
-                            component="img"
-                            src={imageErrors[`yahoo-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
-                            alt={product.title || '商品画像'}
-                            onError={() => handleImageError(`yahoo-${index}`)}
-                            sx={{ 
-                              width: 80, 
-                              height: 80, 
-                              objectFit: 'contain',
-                              border: '1px solid #eee',
-                              borderRadius: 1,
-                              p: 1
-                            }}
-                          />
-                          <Box sx={{ flex: 1 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                          <Box sx={{ mb: 1.5 }}>
                             <Tooltip title={product.title || ''} arrow placement="top">
                               <Typography 
                                 variant="subtitle2" 
                                 sx={{ 
-                                  fontWeight: 'medium', 
-                                  mb: 1,
+                                  fontWeight: 'medium',
+                                  width: '100%',
                                   display: '-webkit-box', 
-                                  WebkitLineClamp: 2,
+                                  WebkitLineClamp: 3,
                                   WebkitBoxOrient: 'vertical',
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                   lineHeight: 1.2,
-                                  height: '2.4em',
-                                  fontSize: '0.875rem'
+                                  minHeight: '3.6em',
+                                  fontSize: '0.875rem',
+                                  color: '#1976d2'
                                 }}
                               >
                                 {product.title}
                                 {renderJanBadge(product)}
                               </Typography>
                             </Tooltip>
-                            <Typography variant="h6" color="#6001D2" fontWeight="bold">
-                              {formatPrice(product.price)}円
-                            </Typography>
                           </Box>
-                        </Box>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
-                          <Button
-                            component="a"
-                            href={product.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            variant="outlined"
-                            size="small"
-                            onClick={(e) => e.stopPropagation()}
-                            sx={{ 
-                              color: '#6001D2', 
-                              borderColor: '#6001D2',
-                              '&:hover': {
-                                borderColor: '#6001D2',
-                                bgcolor: 'rgba(96, 1, 210, 0.04)'
-                              }
-                            }}
-                          >
-                            商品ページ
-                          </Button>
-                          {isSelected && (
-                            <Box sx={{ display: 'flex', gap: 1 }}>
-                              <Button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  downloadProductInfoAsCSV(product, getDisplayStoreName);
-                                }}
-                                variant="contained"
-                                size="small"
-                                startIcon={<FaDownload />}
-                                sx={{ 
-                                  bgcolor: '#6001D2',
-                                  '&:hover': {
-                                    bgcolor: '#5001B2'
-                                  }
-                                }}
-                              >
-                                CSV
-                              </Button>
+
+                          <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                            <Box
+                              component="img"
+                              src={imageErrors[`yahoo-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
+                              alt={product.title || '商品画像'}
+                              onError={() => handleImageError(`yahoo-${index}`)}
+                              sx={{ 
+                                width: 60, 
+                                height: 60, 
+                                objectFit: 'contain',
+                                border: '1px solid #eee',
+                                borderRadius: 1,
+                                p: 0.5
+                              }}
+                            />
+                            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                              <Typography variant="h6" color="error" fontWeight="bold">
+                                {formatPrice(product.price)}円
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 'auto' }}>
+                                {renderStockStatus(product)}
+                                {renderShippingFee(product)}
+                              </Box>
                             </Box>
-                          )}
+                          </Box>
+
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
+                            <Button
+                              component="a"
+                              href={product.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              variant="outlined"
+                              size="small"
+                              onClick={(e) => e.stopPropagation()}
+                              sx={{ 
+                                color: '#6001D2', 
+                                borderColor: '#6001D2',
+                                '&:hover': {
+                                  borderColor: '#6001D2',
+                                  bgcolor: 'rgba(96, 1, 210, 0.04)'
+                                }
+                              }}
+                            >
+                              商品ページ
+                            </Button>
+                            {isSelected && (
+                              <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadProductInfoAsCSV(product, getDisplayStoreName);
+                                  }}
+                                  variant="contained"
+                                  size="small"
+                                  startIcon={<FaDownload />}
+                                  sx={{ 
+                                    bgcolor: '#6001D2',
+                                    '&:hover': {
+                                      bgcolor: '#5001B2'
+                                    }
+                                  }}
+                                >
+                                  CSV
+                                </Button>
+                              </Box>
+                            )}
+                          </Box>
                         </Box>
                       </Box>
                       );
@@ -1394,6 +1547,398 @@ export default function SearchResults({ results }: SearchResultsProps) {
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         Yahoo!ショッピングでは該当する商品が見つかりませんでした。
+                        <br />
+                        別のキーワードで検索するか、他のECサイトをご利用ください。
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+            </Grid>
+            
+            {/* Google Shopping Column */}
+            <Grid item xs={12} md={2.4}>
+              <Box sx={{ 
+                bgcolor: '#f8f8f8', 
+                borderRadius: 2, 
+                overflow: 'hidden',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                <Box sx={{ 
+                  bgcolor: '#4285F4', 
+                  color: 'white', 
+                  p: 0.5, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 0.5
+                }}>
+                  <SiGoogle size={20} />
+                  <Typography variant="subtitle1">Google Shopping</Typography>
+                </Box>
+                <Box sx={{ p: 1, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                  {groupedProducts.googleShopping.length > 0 ? (
+                    groupedProducts.googleShopping.slice(0, PRODUCTS_PER_SOURCE).map((product, index) => {
+                      const productId = getProductId(product, 'googleShopping', index);
+                      const isSelected = selectedProducts[productId] || false;
+                      
+                      return (
+                      <Box 
+                        key={index} 
+                        onClick={() => handleProductSelect(productId)}
+                        sx={{ 
+                          mb: 1.5, 
+                          p: 1, 
+                          bgcolor: 'white', 
+                          borderRadius: 1,
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                          '&:last-child': { mb: 0 },
+                          position: 'relative',
+                          border: isSelected ? '2px solid #4285F4' : '1px solid #eee',
+                          minHeight: '160px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          '&:hover': {
+                            boxShadow: '0 3px 8px rgba(0,0,0,0.15)',
+                            cursor: 'pointer'
+                          },
+                          '&:hover .product-checkbox': {
+                            opacity: 1,
+                            visibility: 'visible'
+                          }
+                        }}
+                      >
+                        <Box 
+                          className="product-checkbox"
+                          sx={{ 
+                            position: 'absolute', 
+                            top: 10, 
+                            left: 10, 
+                            zIndex: 10,
+                            opacity: isSelected ? 1 : 0,
+                            visibility: isSelected ? 'visible' : 'hidden',
+                            transition: 'opacity 0.2s ease-in-out, visibility 0.2s ease-in-out'
+                          }}
+                        >
+                          <Checkbox 
+                            checked={isSelected}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleProductSelect(productId);
+                            }}
+                            sx={{ 
+                              color: '#4285F4',
+                              backgroundColor: 'rgba(255,255,255,0.9)',
+                              borderRadius: '4px',
+                              padding: '4px',
+                              '&.Mui-checked': {
+                                color: '#4285F4',
+                              }
+                            }}
+                          />
+                        </Box>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                          <Box sx={{ mb: 1.5 }}>
+                            <Tooltip title={product.title || ''} arrow placement="top">
+                              <Typography 
+                                variant="subtitle2" 
+                                sx={{ 
+                                  fontWeight: 'medium',
+                                  width: '100%',
+                                  display: '-webkit-box', 
+                                  WebkitLineClamp: 3,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  lineHeight: 1.2,
+                                  minHeight: '3.6em',
+                                  fontSize: '0.875rem',
+                                  color: '#1976d2'
+                                }}
+                              >
+                                {product.title}
+                                {renderJanBadge(product)}
+                              </Typography>
+                            </Tooltip>
+                          </Box>
+
+                          <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                            <Box
+                              component="img"
+                              src={imageErrors[`googleShopping-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
+                              alt={product.title || '商品画像'}
+                              onError={() => handleImageError(`googleShopping-${index}`)}
+                              sx={{ 
+                                width: 60, 
+                                height: 60, 
+                                objectFit: 'contain',
+                                border: '1px solid #eee',
+                                borderRadius: 1,
+                                p: 0.5
+                              }}
+                            />
+                            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                              <Typography variant="h6" color="error" fontWeight="bold">
+                                {formatPrice(product.price)}円
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 'auto' }}>
+                                {renderStockStatus(product)}
+                                {renderShippingFee(product)}
+                              </Box>
+                            </Box>
+                          </Box>
+
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
+                            <Button
+                              component="a"
+                              href={product.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              variant="outlined"
+                              size="small"
+                              onClick={(e) => e.stopPropagation()}
+                              sx={{ 
+                                color: '#4285F4', 
+                                borderColor: '#4285F4',
+                                '&:hover': {
+                                  borderColor: '#4285F4',
+                                  bgcolor: 'rgba(66, 133, 244, 0.04)'
+                                }
+                              }}
+                            >
+                              商品ページ
+                            </Button>
+                            {isSelected && (
+                              <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadProductInfoAsCSV(product, getDisplayStoreName);
+                                  }}
+                                  variant="contained"
+                                  size="small"
+                                  startIcon={<FaDownload />}
+                                  sx={{ 
+                                    bgcolor: '#4285F4',
+                                    '&:hover': {
+                                      bgcolor: '#3B78E7'
+                                    }
+                                  }}
+                                >
+                                  CSV
+                                </Button>
+                              </Box>
+                            )}
+                          </Box>
+                        </Box>
+                      </Box>
+                      );
+                    })
+                  ) : (
+                    <Box sx={{ textAlign: 'center', py: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <Typography variant="body1">
+                        商品が見つかりませんでした
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Google Shoppingでは該当する商品が見つかりませんでした。
+                        <br />
+                        別のキーワードで検索するか、他のECサイトをご利用ください。
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+            </Grid>
+            
+            {/* Google Ads Column */}
+            <Grid item xs={12} md={2.4}>
+              <Box sx={{ 
+                bgcolor: '#f8f8f8', 
+                borderRadius: 2, 
+                overflow: 'hidden',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                <Box sx={{ 
+                  bgcolor: '#34A853', 
+                  color: 'white', 
+                  p: 0.5, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 0.5
+                }}>
+                  <SiGoogle size={20} />
+                  <Typography variant="subtitle1">Google Ads</Typography>
+                </Box>
+                <Box sx={{ p: 1, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                  {groupedProducts.googleAds.length > 0 ? (
+                    groupedProducts.googleAds.slice(0, PRODUCTS_PER_SOURCE).map((product, index) => {
+                      const productId = getProductId(product, 'googleAds', index);
+                      const isSelected = selectedProducts[productId] || false;
+                      
+                      return (
+                      <Box 
+                        key={index} 
+                        onClick={() => handleProductSelect(productId)}
+                        sx={{ 
+                          mb: 1.5, 
+                          p: 1, 
+                          bgcolor: 'white', 
+                          borderRadius: 1,
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                          '&:last-child': { mb: 0 },
+                          position: 'relative',
+                          border: isSelected ? '2px solid #34A853' : '1px solid #eee',
+                          minHeight: '160px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          '&:hover': {
+                            boxShadow: '0 3px 8px rgba(0,0,0,0.15)',
+                            cursor: 'pointer'
+                          },
+                          '&:hover .product-checkbox': {
+                            opacity: 1,
+                            visibility: 'visible'
+                          }
+                        }}
+                      >
+                        <Box 
+                          className="product-checkbox"
+                          sx={{ 
+                            position: 'absolute', 
+                            top: 10, 
+                            left: 10, 
+                            zIndex: 10,
+                            opacity: isSelected ? 1 : 0,
+                            visibility: isSelected ? 'visible' : 'hidden',
+                            transition: 'opacity 0.2s ease-in-out, visibility 0.2s ease-in-out'
+                          }}
+                        >
+                          <Checkbox 
+                            checked={isSelected}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleProductSelect(productId);
+                            }}
+                            sx={{ 
+                              color: '#34A853',
+                              backgroundColor: 'rgba(255,255,255,0.9)',
+                              borderRadius: '4px',
+                              padding: '4px',
+                              '&.Mui-checked': {
+                                color: '#34A853',
+                              }
+                            }}
+                          />
+                        </Box>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                          <Box sx={{ mb: 1.5 }}>
+                            <Tooltip title={product.title || ''} arrow placement="top">
+                              <Typography 
+                                variant="subtitle2" 
+                                sx={{ 
+                                  fontWeight: 'medium',
+                                  width: '100%',
+                                  display: '-webkit-box', 
+                                  WebkitLineClamp: 3,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  lineHeight: 1.2,
+                                  minHeight: '3.6em',
+                                  fontSize: '0.875rem',
+                                  color: '#1976d2'
+                                }}
+                              >
+                                {product.title}
+                                {renderJanBadge(product)}
+                              </Typography>
+                            </Tooltip>
+                          </Box>
+
+                          <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                            <Box
+                              component="img"
+                              src={imageErrors[`googleAds-${index}`] ? FALLBACK_IMAGE : (product.image_url || FALLBACK_IMAGE)}
+                              alt={product.title || '商品画像'}
+                              onError={() => handleImageError(`googleAds-${index}`)}
+                              sx={{ 
+                                width: 60, 
+                                height: 60, 
+                                objectFit: 'contain',
+                                border: '1px solid #eee',
+                                borderRadius: 1,
+                                p: 0.5
+                              }}
+                            />
+                            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                              <Typography variant="h6" color="error" fontWeight="bold">
+                                {formatPrice(product.price)}円
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 'auto' }}>
+                                {renderStockStatus(product)}
+                                {renderShippingFee(product)}
+                              </Box>
+                            </Box>
+                          </Box>
+
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 'auto' }}>
+                            <Button
+                              component="a"
+                              href={product.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              variant="outlined"
+                              size="small"
+                              onClick={(e) => e.stopPropagation()}
+                              sx={{ 
+                                color: '#34A853', 
+                                borderColor: '#34A853',
+                                '&:hover': {
+                                  borderColor: '#34A853',
+                                  bgcolor: 'rgba(52, 168, 83, 0.04)'
+                                }
+                              }}
+                            >
+                              商品ページ
+                            </Button>
+                            {isSelected && (
+                              <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadProductInfoAsCSV(product, getDisplayStoreName);
+                                  }}
+                                  variant="contained"
+                                  size="small"
+                                  startIcon={<FaDownload />}
+                                  sx={{ 
+                                    bgcolor: '#34A853',
+                                    '&:hover': {
+                                      bgcolor: '#2D9348'
+                                    }
+                                  }}
+                                >
+                                  CSV
+                                </Button>
+                              </Box>
+                            )}
+                          </Box>
+                        </Box>
+                      </Box>
+                      );
+                    })
+                  ) : (
+                    <Box sx={{ textAlign: 'center', py: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <Typography variant="body1">
+                        商品が見つかりませんでした
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Google Adsでは該当する商品が見つかりませんでした。
                         <br />
                         別のキーワードで検索するか、他のECサイトをご利用ください。
                       </Typography>

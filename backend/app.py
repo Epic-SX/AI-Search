@@ -901,6 +901,8 @@ def detailed_batch_search():
         use_ai = data.get('use_ai', False)
         # Always use direct search
         direct_search = True
+        # Add JAN code support
+        use_jan_code = data.get('use_jan_code', True)  # Default to True like in single search
         
         if not product_info_list or not isinstance(product_info_list, list):
             return jsonify({'error': 'Invalid product info list'}), 400
@@ -930,53 +932,100 @@ def detailed_batch_search():
             
             for product_info in chunk:
                 try:
-                    # キーワード生成 (Always use direct search)
                     # For direct search, use the exact model number provided by the user
                     keywords = [product_info]  # Use the exact input as the only keyword
-                    print(f"DEBUG: Direct search enabled. Using exact model number: {product_info}")
+                    jan_code = None
+                    
+                    # Check if it looks like a model number
+                    is_model_number = bool(re.match(r'^[A-Za-z0-9]+-?[A-Za-z0-9]+', str(product_info)))
+                    
+                    # Check if it's already a JAN code (8 or 13 digits)
+                    is_jan_code = bool(re.match(r'^[0-9]{8}$|^[0-9]{13}$', str(product_info)))
+                    
+                    # If it's already a JAN code, use it directly
+                    if is_jan_code:
+                        print(f"Input is already a JAN code: {product_info}")
+                        jan_code = product_info
+                        keywords = [jan_code]
+                        
+                        # Get detailed product information using JAN code
+                        detailed_products = price_comparison.get_detailed_products_direct(jan_code)
+                        
+                    # If it's a model number and JAN code lookup is enabled, try to get a JAN code
+                    elif is_model_number and use_jan_code:
+                        jan_code = perplexity_client.get_jan_code(product_info)
+                        if jan_code:
+                            # If JAN code is found, it becomes the ONLY search term
+                            print(f"Found JAN code for {product_info}: {jan_code}")
+                            # Use only the JAN code for search to ensure consistency across platforms
+                            keywords = [jan_code]
+                            
+                            # Get detailed product information using JAN code
+                            detailed_products = price_comparison.get_detailed_products_direct(jan_code)
+                            
+                            # If no products found with JAN code, fall back to model number
+                            if not detailed_products or len(detailed_products) == 0:
+                                print(f"No products found with JAN code, falling back to model number")
+                                detailed_products = price_comparison.get_detailed_products_direct(product_info)
+                        else:
+                            # No JAN code found, use the model number
+                            print(f"No JAN code found for {product_info}, using model number directly")
+                            detailed_products = price_comparison.get_detailed_products_direct(product_info)
+                    else:
+                        # Not a model number or JAN code lookup disabled, use normal search
+                        print(f"Using normal search for {product_info} (not a model number or JAN lookup disabled)")
+                        detailed_products = price_comparison.get_detailed_products_direct(product_info)
                     
                     # 価格比較
                     price_results = []
                     try:
-                        # Use direct search method when direct_search is true
-                        if direct_search:
-                            # Use the exact model number for search
-                            price_results = price_comparison.compare_prices_with_model_numbers(keywords)
-                        else:
-                            price_results = price_comparison.compare_prices(product_info)
+                        # For price comparison, use the same keywords as for product search
+                        price_results = price_comparison.compare_prices_with_model_numbers(keywords)
                     except Exception as e:
                         print(f"Error in price comparison for '{product_info}': {e}")
                         batch_search_status[batch_id]['has_errors'] = True
                     
-                    # 詳細な商品情報を取得
-                    detailed_products = []
-                    try:
-                        # Use direct search method when direct_search is true
-                        if direct_search:
-                            # Use the exact model number for search
-                            detailed_products = price_comparison.get_detailed_products_with_model_numbers(keywords)
+                    # Convert product objects to dictionaries with JAN code metadata
+                    serializable_products = []
+                    for product in detailed_products:
+                        if hasattr(product, 'to_dict'):
+                            product_dict = product.to_dict()
+                            # Add metadata to indicate this product was found via JAN code
+                            if jan_code:
+                                if not product_dict.get('additional_info'):
+                                    product_dict['additional_info'] = {}
+                                product_dict['additional_info']['searched_by_jan'] = True
+                                product_dict['additional_info']['jan_code'] = jan_code
+                            serializable_products.append(product_dict)
                         else:
-                            detailed_products = price_comparison.get_detailed_products(product_info)
-                            
-                        # Log the number of products by source
-                        sources = {}
-                        for product in detailed_products:
-                            source = getattr(product, 'source', 'unknown').lower()
-                            if source in sources:
-                                sources[source] += 1
+                            # If it's already a dictionary
+                            if isinstance(product, dict):
+                                product_dict = product
                             else:
-                                sources[source] = 1
-                        print(f"DEBUG: Products by source for '{product_info}': {sources}")
-                        
-                    except Exception as e:
-                        print(f"Error getting detailed products for '{product_info}': {e}")
-                        batch_search_status[batch_id]['has_errors'] = True
+                                # If it's another type of object with __dict__
+                                if hasattr(product, '__dict__'):
+                                    product_dict = product.__dict__
+                                else:
+                                    # Last resort: try to convert to a dictionary or create an empty one
+                                    try:
+                                        product_dict = dict(product)
+                                    except:
+                                        print(f"Warning: Could not convert {type(product)} to dictionary. Using empty dict.")
+                                        product_dict = {}
+                            # Add metadata to indicate this product was found via JAN code
+                            if jan_code:
+                                if not product_dict.get('additional_info'):
+                                    product_dict['additional_info'] = {}
+                                product_dict['additional_info']['searched_by_jan'] = True
+                                product_dict['additional_info']['jan_code'] = jan_code
+                            serializable_products.append(product_dict)
                     
                     result = {
                         'product_info': product_info,
                         'keywords': keywords,
+                        'jan_code': jan_code,  # Add JAN code to the result
                         'price_comparison': price_results,
-                        'detailed_products': [p.to_dict() if hasattr(p, 'to_dict') else (p if isinstance(p, dict) else (p.__dict__ if hasattr(p, '__dict__') else {})) for p in detailed_products],
+                        'detailed_products': serializable_products,
                         'error': None
                     }
                     
@@ -1045,6 +1094,7 @@ def batch_keywords():
         data = request.json
         model_numbers = data.get('model_numbers', [])
         custom_prompt = data.get('custom_prompt')
+        force_refresh = data.get('force_refresh', False)  # New parameter to bypass cache
         
         if not model_numbers:
             return jsonify({'error': 'No model numbers provided'}), 400
@@ -1100,9 +1150,16 @@ def batch_keywords():
                 product_info_list.append({"model_number": model_number})
         
         # Now generate keywords based on the product information
-        results = generator.batch_generate(product_info_list, custom_prompt)
+        results = generator.batch_generate(product_info_list, custom_prompt, force_refresh)
         
-        return jsonify({'results': results})
+        # Extract just the keywords for the response
+        enhanced_keywords = [item['keyword'] for item in results]
+        
+        # Return both the full results and just the keywords (for compatibility with different frontend implementations)
+        return jsonify({
+            'results': results,  # Original format
+            'keywords': enhanced_keywords  # Same format as enhance_keywords endpoint
+        })
     except Exception as e:
         print(f"Error in batch keywords: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -1160,7 +1217,6 @@ def handle_product_options():
     response = jsonify({'status': 'ok'})
     return response
 
-# Add the missing POST method handler for /api/search/product
 @app.route('/api/search/product', methods=['POST'])
 def search_product():
     """
@@ -1173,6 +1229,18 @@ def search_product():
         
         if not product_info:
             return jsonify({"error": "Product info is required"}), 400
+        
+        print(f"Starting product search for: {product_info}")
+        
+        # Check if this is a laptop search to apply special handling
+        laptop_brands = ['hp', 'dell', 'lenovo', 'asus', 'acer', 'msi', 'fujitsu', 'toshiba', 'nec', 'vaio']
+        laptop_keywords = ['laptop', 'ノートパソコン', 'パソコン', 'PC', 'notebook', 'computer']
+        
+        is_laptop_search = False
+        if any(brand.lower() in product_info.lower() for brand in laptop_brands) and \
+           any(keyword.lower() in product_info.lower() for keyword in laptop_keywords):
+            is_laptop_search = True
+            print(f"Detected laptop search: {product_info}")
         
         # Use direct search with the exact model number/product info
         keywords = [product_info]
@@ -1213,10 +1281,60 @@ def search_product():
                 # No JAN code found, use the model number
                 print(f"No JAN code found for {product_info}, using model number directly")
                 detailed_products = price_comparison.get_detailed_products_direct(product_info)
+        # Special handling for laptop searches
+        elif is_laptop_search:
+            print(f"Using specialized laptop search for: {product_info}")
+            
+            # Try to extract the brand and add it to keywords
+            brand = next((brand for brand in laptop_brands if brand.lower() in product_info.lower()), None)
+            if brand:
+                # Create additional search terms focused on the laptop
+                enhanced_terms = [
+                    product_info,  # Original search
+                    f"{brand} ノートパソコン",  # Brand + generic laptop term
+                ]
+                
+                # If Windows is mentioned, add a Windows-specific term
+                if 'windows' in product_info.lower():
+                    enhanced_terms.append(f"{brand} ノートパソコン windows")
+                
+                print(f"Enhanced laptop search terms: {enhanced_terms}")
+                
+                # Try each term until we get good results
+                for term in enhanced_terms:
+                    temp_products = price_comparison.get_detailed_products_direct(term)
+                    
+                    # If we got good results, use them and break
+                    if temp_products and len(temp_products) >= 3:
+                        detailed_products = temp_products
+                        print(f"Found {len(detailed_products)} products using term: {term}")
+                        keywords = [term]
+                        break
+                    elif not detailed_products or len(detailed_products) == 0:
+                        # If this is our first attempt, save these results
+                        detailed_products = temp_products
+                        keywords = [term]
+            else:
+                # If no brand identified, use standard search
+                detailed_products = price_comparison.get_detailed_products_direct(product_info)
         else:
             # Not a model number or JAN code lookup disabled, use normal search
-            print(f"Using normal search for {product_info} (not a model number or JAN lookup disabled)")
+            print(f"Using normal search for {product_info}")
             detailed_products = price_comparison.get_detailed_products_direct(product_info)
+        
+        # If we still have no products, try a more generic search for laptops
+        if is_laptop_search and (not detailed_products or len(detailed_products) == 0):
+            print("No products found with specific terms, trying generic laptop search")
+            # Extract brand for more generic search
+            brand = next((brand for brand in laptop_brands if brand.lower() in product_info.lower()), None)
+            if brand:
+                generic_term = f"{brand} ノートパソコン"
+                detailed_products = price_comparison.get_detailed_products_direct(generic_term)
+                if detailed_products and len(detailed_products) > 0:
+                    print(f"Found {len(detailed_products)} products using generic term: {generic_term}")
+                    keywords = [generic_term]
+        
+        print(f"Found {len(detailed_products)} total products for search: {product_info}")
         
         # Convert product objects to dictionaries
         serializable_products = []
@@ -1286,4 +1404,178 @@ def get_jan_code():
         
     except Exception as e:
         print(f"Error getting JAN code: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/analyze-image-with-perplexity', methods=['POST'])
+def analyze_image_with_perplexity():
+    """
+    Analyze an image using Google Vision API and then use Perplexity AI to extract 
+    product information including JAN code, model number, and product name
+    """
+    try:
+        if 'image' in request.files:
+            # Handle file upload
+            image_file = request.files['image']
+            image_data = image_file.read()
+            
+            # First use Google Vision API to extract text and analyze content
+            image_search_engine = ImageSearchEngine()
+            text_results = image_search_engine.extract_model_numbers(image_data=image_data)
+            content_results = image_search_engine.analyze_image_content(image_data=image_data)
+            
+            # Combine the results for Perplexity analysis
+            detected_text = []
+            detected_models = []
+            
+            if text_results:
+                for result in text_results:
+                    detected_models.append(result.get('model_number', ''))
+                    
+            # Now use Perplexity to get better product information
+            prompt = f"""
+            I have scanned a product image and need to identify it properly. Here's what I found:
+            
+            Detected Potential Model Numbers: {', '.join(detected_models) if detected_models else 'None'}
+            Detected Product Category: {content_results if content_results else 'Unknown'}
+            
+            Look carefully at the image. If you see:
+            - A laptop or notebook computer, identify the brand (HP, Dell, Lenovo, etc.), model series, and specific model if visible
+            - Any visible operating system logos like Windows or macOS
+            - Screen size, color, and distinctive features
+            - Text on the device or packaging that indicates specifications
+            
+            Based on this detailed analysis, please identify:
+            1. The exact product name in Japanese (be specific - e.g. "HP Pavilion ノートパソコン" instead of just "ノートパソコン")
+            2. The model number or series
+            3. The JAN code (Japanese barcode)
+            
+            Reply in this exact JSON format with detailed and specific information:
+            {{
+                "product_name": "Detailed product name in Japanese",
+                "model_number": "The model number or series",
+                "jan_code": "The JAN code (or 'unknown' if not found)",
+                "additional_keywords": ["laptop", "notebook", "computer", "brand name", "operating system"] 
+            }}
+            
+            Never return generic terms like '商品' or 'パソコン' alone. Always be as specific as possible about the exact product shown.
+            """
+            
+            # Call Perplexity API
+            perplexity_response = perplexity_client.complete(prompt)
+            
+            # Parse the JSON response
+            try:
+                # The response might contain explanatory text before or after the JSON
+                import re
+                import json
+                
+                # Try to extract JSON using regex
+                json_match = re.search(r'\{.*\}', perplexity_response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    product_info = json.loads(json_str)
+                else:
+                    # Fallback if no JSON is found
+                    product_info = {
+                        "product_name": content_results if content_results else "Unknown product",
+                        "model_number": detected_models[0] if detected_models else "Unknown",
+                        "jan_code": "unknown",
+                        "additional_keywords": []
+                    }
+            except Exception as json_error:
+                print(f"Error parsing Perplexity response JSON: {json_error}")
+                print(f"Raw Perplexity response: {perplexity_response}")
+                product_info = {
+                    "product_name": content_results if content_results else "Unknown product",
+                    "model_number": detected_models[0] if detected_models else "Unknown",
+                    "jan_code": "unknown",
+                    "additional_keywords": []
+                }
+            
+            return jsonify(product_info)
+            
+        elif 'image_url' in request.json:
+            # Handle image URL
+            image_url = request.json['image_url']
+            
+            # First use Google Vision API to extract text and analyze content
+            image_search_engine = ImageSearchEngine()
+            text_results = image_search_engine.extract_model_numbers(image_url=image_url)
+            content_results = image_search_engine.analyze_image_content(image_url=image_url)
+            
+            # Combine the results for Perplexity analysis
+            detected_text = []
+            detected_models = []
+            
+            if text_results:
+                for result in text_results:
+                    detected_models.append(result.get('model_number', ''))
+                    
+            # Now use Perplexity to get better product information
+            prompt = f"""
+            I have scanned a product image and need to identify it properly. Here's what I found:
+            
+            Detected Potential Model Numbers: {', '.join(detected_models) if detected_models else 'None'}
+            Detected Product Category: {content_results if content_results else 'Unknown'}
+            
+            Look carefully at the image. If you see:
+            - A laptop or notebook computer, identify the brand (HP, Dell, Lenovo, etc.), model series, and specific model if visible
+            - Any visible operating system logos like Windows or macOS
+            - Screen size, color, and distinctive features
+            - Text on the device or packaging that indicates specifications
+            
+            Based on this detailed analysis, please identify:
+            1. The exact product name in Japanese (be specific - e.g. "HP Pavilion ノートパソコン" instead of just "ノートパソコン")
+            2. The model number or series
+            3. The JAN code (Japanese barcode)
+            
+            Reply in this exact JSON format with detailed and specific information:
+            {{
+                "product_name": "Detailed product name in Japanese",
+                "model_number": "The model number or series",
+                "jan_code": "The JAN code (or 'unknown' if not found)",
+                "additional_keywords": ["laptop", "notebook", "computer", "brand name", "operating system"] 
+            }}
+            
+            Never return generic terms like '商品' or 'パソコン' alone. Always be as specific as possible about the exact product shown.
+            """
+            
+            # Call Perplexity API
+            perplexity_response = perplexity_client.complete(prompt)
+            
+            # Parse the JSON response
+            try:
+                # The response might contain explanatory text before or after the JSON
+                import re
+                import json
+                
+                # Try to extract JSON using regex
+                json_match = re.search(r'\{.*\}', perplexity_response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    product_info = json.loads(json_str)
+                else:
+                    # Fallback if no JSON is found
+                    product_info = {
+                        "product_name": content_results if content_results else "Unknown product",
+                        "model_number": detected_models[0] if detected_models else "Unknown",
+                        "jan_code": "unknown",
+                        "additional_keywords": []
+                    }
+            except Exception as json_error:
+                print(f"Error parsing Perplexity response JSON: {json_error}")
+                print(f"Raw Perplexity response: {perplexity_response}")
+                product_info = {
+                    "product_name": content_results if content_results else "Unknown product",
+                    "model_number": detected_models[0] if detected_models else "Unknown",
+                    "jan_code": "unknown",
+                    "additional_keywords": []
+                }
+            
+            return jsonify(product_info)
+        else:
+            return jsonify({"error": "No image or image URL provided"}), 400
+            
+    except Exception as e:
+        print(f"Error analyzing image with Perplexity: {e}")
         return jsonify({"error": str(e)}), 500

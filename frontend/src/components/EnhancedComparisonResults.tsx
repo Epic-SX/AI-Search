@@ -3,11 +3,11 @@ import { ComparisonResult, ProductInfo } from '../types';
 import { 
   Box, Typography, Button, Table, TableBody, TableCell, 
   TableContainer, TableHead, TableRow, Paper, Grid, Card, 
-  CardContent, Tabs, Tab, Divider, Tooltip, IconButton
+  CardContent, Tabs, Tab, Divider, Tooltip, IconButton, CardHeader, Chip
 } from '@mui/material';
 import { 
   FaDownload, FaFileCsv, FaFilePdf, FaClipboard, 
-  FaExternalLinkAlt, FaInfoCircle, FaTable
+  FaExternalLinkAlt, FaInfoCircle, FaTable, FaStar, FaCheck, FaCopy
 } from 'react-icons/fa';
 import SimpleRakutenImage from './SimpleRakutenImage';
 import { jsPDF } from 'jspdf';
@@ -84,8 +84,7 @@ interface EnhancedComparisonResultsProps {
 
 export default function EnhancedComparisonResults({ result }: EnhancedComparisonResultsProps) {
   const [activeTab, setActiveTab] = useState(0);
-  const [imageErrorA, setImageErrorA] = useState(false);
-  const [imageErrorB, setImageErrorB] = useState(false);
+  const [comparisonCopied, setComparisonCopied] = useState(false);
   const [bulkDownloading, setBulkDownloading] = useState(false);
   const comparisonRef = useRef<HTMLDivElement>(null);
 
@@ -154,41 +153,71 @@ export default function EnhancedComparisonResults({ result }: EnhancedComparison
     }
   };
 
-  // Function to copy all comparison data to clipboard
-  const copyToClipboard = () => {
+  // Copy all comparison data to clipboard
+  const copyComparisonToClipboard = () => {
     try {
-      let textContent = `商品比較: ${cleanHtmlText(result.product_a.title)} vs ${cleanHtmlText(result.product_b.title)}\n\n`;
+      // Format the comparison data for clipboard
+      let clipboardText = `商品比較: ${result.product_a.title} vs ${result.product_b.title}\n\n`;
       
-      textContent += `商品A: ${cleanHtmlText(result.product_a.title)}\n`;
-      textContent += `価格: ¥${(result.product_a.price || 0).toLocaleString()}\n`;
-      textContent += `ストア: ${cleanHtmlText(result.product_a.store)}\n`;
-      textContent += `URL: ${result.product_a.url || ''}\n\n`;
+      // Basic product info
+      clipboardText += `商品A: ${result.product_a.title}\n`;
+      clipboardText += `価格: ¥${(result.product_a.price || 0).toLocaleString()}\n`;
+      clipboardText += `ストア: ${result.product_a.store || ''}\n\n`;
       
-      textContent += `商品B: ${cleanHtmlText(result.product_b.title)}\n`;
-      textContent += `価格: ¥${(result.product_b.price || 0).toLocaleString()}\n`;
-      textContent += `ストア: ${cleanHtmlText(result.product_b.store)}\n`;
-      textContent += `URL: ${result.product_b.url || ''}\n\n`;
+      clipboardText += `商品B: ${result.product_b.title}\n`;
+      clipboardText += `価格: ¥${(result.product_b.price || 0).toLocaleString()}\n`;
+      clipboardText += `ストア: ${result.product_b.store || ''}\n\n`;
       
-      textContent += "主な違い:\n";
-      result.differences.forEach(diff => {
-        textContent += `${diff.category}: ${cleanHtmlText(diff.product_a_value)} vs ${cleanHtmlText(diff.product_b_value)} (重要度: ${diff.significance})\n`;
-      });
+      // Differences by significance
+      const highDiffs = result.differences.filter(d => d.significance === 'high');
+      const mediumDiffs = result.differences.filter(d => d.significance === 'medium');
+      const lowDiffs = result.differences.filter(d => d.significance === 'low');
       
-      if (result.recommendation) {
-        textContent += `\nおすすめ: ${cleanHtmlText(result.recommendation)}\n`;
+      if (highDiffs.length > 0) {
+        clipboardText += `【重要な違い】\n`;
+        highDiffs.forEach(diff => {
+          clipboardText += `${diff.category}:\n`;
+          clipboardText += `  商品A: ${cleanHtmlText(diff.product_a_value)}\n`;
+          clipboardText += `  商品B: ${cleanHtmlText(diff.product_b_value)}\n\n`;
+        });
       }
       
-      navigator.clipboard.writeText(textContent)
-        .then(() => {
-          toast.success('比較データをクリップボードにコピーしました');
-        })
-        .catch(err => {
-          console.error('クリップボードへのコピーに失敗しました:', err);
-          toast.error('クリップボードへのコピーに失敗しました');
+      if (mediumDiffs.length > 0) {
+        clipboardText += `【中程度の違い】\n`;
+        mediumDiffs.forEach(diff => {
+          clipboardText += `${diff.category}:\n`;
+          clipboardText += `  商品A: ${cleanHtmlText(diff.product_a_value)}\n`;
+          clipboardText += `  商品B: ${cleanHtmlText(diff.product_b_value)}\n\n`;
         });
+      }
+      
+      if (lowDiffs.length > 0) {
+        clipboardText += `【その他の違い】\n`;
+        lowDiffs.forEach(diff => {
+          clipboardText += `${diff.category}:\n`;
+          clipboardText += `  商品A: ${cleanHtmlText(diff.product_a_value)}\n`;
+          clipboardText += `  商品B: ${cleanHtmlText(diff.product_b_value)}\n\n`;
+        });
+      }
+      
+      // Add recommendation
+      if (result.recommendation) {
+        clipboardText += `【おすすめ】\n${result.recommendation}\n`;
+      }
+      
+      // Copy to clipboard
+      navigator.clipboard.writeText(clipboardText);
+      setComparisonCopied(true);
+      
+      // Reset copy status after 2 seconds
+      setTimeout(() => {
+        setComparisonCopied(false);
+      }, 2000);
+      
+      toast.success('比較データをクリップボードにコピーしました');
     } catch (error) {
-      console.error('クリップボードへのコピー中にエラーが発生しました:', error);
-      toast.error('クリップボードへのコピーに失敗しました');
+      console.error('Error copying comparison data:', error);
+      toast.error('データのコピーに失敗しました');
     }
   };
 
@@ -587,149 +616,291 @@ export default function EnhancedComparisonResults({ result }: EnhancedComparison
   };
 
   return (
-    <Box sx={{ mt: 4 }} ref={comparisonRef} id="comparison-section">
+    <Box id="comparison-section" sx={{ position: 'relative' }}>
       {/* Action buttons */}
-      <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-        <Tooltip title="CSVでダウンロード">
-          <Button 
-            variant="outlined" 
-            startIcon={<FaFileCsv />}
-            onClick={exportToCSV}
+      <Box sx={{ position: 'absolute', top: 0, right: 0, zIndex: 10, display: 'flex', gap: 1 }}>
+        <Tooltip title="PDFダウンロード">
+          <IconButton 
+            onClick={downloadPDF} 
+            color="primary"
           >
-            CSV出力
-          </Button>
+            <FaFilePdf />
+          </IconButton>
         </Tooltip>
-        
-        <Tooltip title="PDFでダウンロード（画像付き）">
-          <Button 
-            variant="outlined" 
-            startIcon={<FaFilePdf />}
-            onClick={downloadPDF}
-          >
-            PDF出力
-          </Button>
-        </Tooltip>
-        
-        <Tooltip title="一括PDFダウンロード（ページ番号付き）">
-          <Button 
-            variant="outlined" 
-            startIcon={<FaDownload />}
-            onClick={downloadBulkPDF}
+        <Tooltip title="一括PDFダウンロード">
+          <IconButton 
+            onClick={downloadBulkPDF} 
+            color="primary"
             disabled={bulkDownloading}
           >
-            一括PDF出力
-          </Button>
+            {bulkDownloading ? <CircularProgress size={24} /> : <FaDownload />}
+          </IconButton>
         </Tooltip>
-        
-        <Tooltip title="すべてコピー">
-          <Button 
-            variant="outlined" 
-            startIcon={<FaClipboard />}
-            onClick={copyToClipboard}
+        <Tooltip title={comparisonCopied ? "コピー完了" : "すべてコピー"}>
+          <IconButton 
+            onClick={copyComparisonToClipboard} 
+            color={comparisonCopied ? "success" : "primary"}
           >
-            一括コピー
-          </Button>
+            {comparisonCopied ? <FaCheck /> : <FaCopy />}
+          </IconButton>
         </Tooltip>
       </Box>
       
-      {/* View toggle tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={activeTab} onChange={handleTabChange}>
-          <Tab icon={<FaTable />} label="テーブル表示" />
-          <Tab icon={<FaInfoCircle />} label="詳細表示" />
-        </Tabs>
-      </Box>
-      
-      {/* Table view */}
-      {activeTab === 0 && (
-        <Box>
-          {renderComparisonTable()}
+      {/* Replace the tab view with a combined view */}
+      <Box sx={{ 
+        mt: 4,
+        display: 'flex', 
+        flexDirection: { xs: 'column', md: 'row' },
+        gap: 3
+      }}>
+        {/* Product comparison section */}
+        <Box sx={{ 
+          width: { xs: '100%', md: '50%' },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2 
+        }}>
+          <Paper elevation={2} sx={{ p: 2, position: 'relative' }}>
+            <Typography variant="h6" gutterBottom>
+              商品基本情報
+            </Typography>
+            
+            <Grid container spacing={3}>
+              {/* Product A info */}
+              <Grid item xs={12} md={6}>
+                <Card sx={{ height: '100%' }}>
+                  <CardHeader 
+                    title="商品 A"
+                    titleTypographyProps={{ variant: 'subtitle1' }}
+                    sx={{ bgcolor: 'primary.light', color: 'white', py: 1 }}
+                  />
+                  <CardContent sx={{ p: 2 }}>
+                    {result.product_a.image_url && (
+                      <Box sx={{ textAlign: 'center', mb: 2 }}>
+                        <img
+                          src={result.product_a.image_url}
+                          alt={result.product_a.title || '商品A'}
+                          style={{ maxWidth: '120px', maxHeight: '120px', objectFit: 'contain' }}
+                        />
+                      </Box>
+                    )}
+                    <Typography variant="body2" gutterBottom noWrap title={result.product_a.title}>
+                      <strong>{result.product_a.title}</strong>
+                    </Typography>
+                    <Typography variant="body2" color="primary" fontWeight="bold">
+                      ¥{(result.product_a.price || 0).toLocaleString()}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      {result.product_a.store}
+                    </Typography>
+                    {result.product_a.url && (
+                      <Button 
+                        variant="outlined" 
+                        size="small" 
+                        href={result.product_a.url} 
+                        target="_blank"
+                        fullWidth
+                        sx={{ mt: 1 }}
+                      >
+                        商品を見る
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+              
+              {/* Product B info */}
+              <Grid item xs={12} md={6}>
+                <Card sx={{ height: '100%' }}>
+                  <CardHeader 
+                    title="商品 B"
+                    titleTypographyProps={{ variant: 'subtitle1' }}
+                    sx={{ bgcolor: 'secondary.light', color: 'white', py: 1 }}
+                  />
+                  <CardContent sx={{ p: 2 }}>
+                    {result.product_b.image_url && (
+                      <Box sx={{ textAlign: 'center', mb: 2 }}>
+                        <img
+                          src={result.product_b.image_url}
+                          alt={result.product_b.title || '商品B'}
+                          style={{ maxWidth: '120px', maxHeight: '120px', objectFit: 'contain' }}
+                        />
+                      </Box>
+                    )}
+                    <Typography variant="body2" gutterBottom noWrap title={result.product_b.title}>
+                      <strong>{result.product_b.title}</strong>
+                    </Typography>
+                    <Typography variant="body2" color="secondary" fontWeight="bold">
+                      ¥{(result.product_b.price || 0).toLocaleString()}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      {result.product_b.store}
+                    </Typography>
+                    {result.product_b.url && (
+                      <Button 
+                        variant="outlined" 
+                        size="small" 
+                        href={result.product_b.url} 
+                        target="_blank"
+                        fullWidth
+                        sx={{ mt: 1 }}
+                      >
+                        商品を見る
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          </Paper>
           
+          {/* Recommendation section */}
           {result.recommendation && (
-            <Card sx={{ mt: 3, border: '1px solid #4caf50', boxShadow: 2 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ color: 'success.main', fontWeight: 'bold' }}>
-                  おすすめ
-                </Typography>
-                <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
-                  {result.recommendation}
-                </Typography>
-              </CardContent>
-            </Card>
+            <Paper elevation={2} sx={{ p: 2, bgcolor: 'rgba(255, 252, 220, 0.3)' }}>
+              <Typography variant="subtitle1" gutterBottom>
+                <FaStar style={{ color: '#F9A825', marginRight: '8px', verticalAlign: 'middle' }} />
+                おすすめ
+              </Typography>
+              <Typography variant="body2">{result.recommendation}</Typography>
+            </Paper>
           )}
         </Box>
-      )}
-      
-      {/* Detailed view */}
-      {activeTab === 1 && (
-        <>
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            <Grid item xs={12} md={6}>
-              {renderProductCard(result.product_a, true)}
-            </Grid>
-            <Grid item xs={12} md={6}>
-              {renderProductCard(result.product_b, false)}
-            </Grid>
-          </Grid>
-          
-          <Card sx={{ mb: 4, boxShadow: 3 }}>
-            <CardContent>
-              <Typography variant="h5" gutterBottom sx={{ borderBottom: '2px solid #f0f0f0', pb: 1, fontWeight: 'bold' }}>
-                主な違い
-              </Typography>
-              <TableContainer>
-                <Table>
-                  <TableHead>
-                    <TableRow sx={{ backgroundColor: 'primary.main' }}>
-                      <TableCell sx={{ width: '20%', whiteSpace: 'normal', fontWeight: 'bold', color: 'white', fontSize: '1rem' }}>カテゴリ</TableCell>
-                      <TableCell sx={{ width: '35%', whiteSpace: 'normal', fontWeight: 'bold', color: 'white', fontSize: '1rem' }}>商品A</TableCell>
-                      <TableCell sx={{ width: '35%', whiteSpace: 'normal', fontWeight: 'bold', color: 'white', fontSize: '1rem' }}>商品B</TableCell>
-                      <TableCell sx={{ width: '10%', whiteSpace: 'normal', fontWeight: 'bold', color: 'white', fontSize: '1rem' }}>重要度</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {result.differences.map((diff, index) => (
-                      <TableRow key={index} sx={{ 
-                        backgroundColor: index % 2 === 0 ? 'white' : '#f8f8f8'
-                      }}>
-                        <TableCell sx={{ whiteSpace: 'normal', fontWeight: 'bold', borderLeft: '4px solid #e0e0e0' }}>{diff.category}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'normal', p: 2 }}>{cleanHtmlText(diff.product_a_value)}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'normal', p: 2 }}>{cleanHtmlText(diff.product_b_value)}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'normal', p: 2 }}>
+        
+        {/* Differences table section */}
+        <Box sx={{ width: { xs: '100%', md: '50%' } }}>
+          <Paper elevation={2} sx={{ p: 2 }}>
+            <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+              違いの比較
+            </Typography>
+            
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell width="30%">項目</TableCell>
+                    <TableCell width="30%">商品 A</TableCell>
+                    <TableCell width="30%">商品 B</TableCell>
+                    <TableCell width="10%" align="center">重要度</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {/* Group differences by significance */}
+                  {/* High significance differences */}
+                  <TableRow>
+                    <TableCell 
+                      colSpan={4} 
+                      sx={{ bgcolor: 'error.light', color: 'white', fontWeight: 'bold' }}
+                    >
+                      重要な違い
+                    </TableCell>
+                  </TableRow>
+                  {result.differences
+                    .filter(diff => diff.significance === 'high')
+                    .map((diff, idx) => (
+                      <TableRow key={`high-${idx}`}>
+                        <TableCell><Typography variant="body2">{diff.category}</Typography></TableCell>
+                        <TableCell>
                           <Typography 
-                            sx={{ 
-                              color: diff.significance === 'high' ? 'error.main' : 
-                                    diff.significance === 'medium' ? 'warning.main' : 'info.main',
-                              fontWeight: diff.significance === 'high' ? 'bold' : 'normal'
-                            }}
-                          >
-                            {diff.significance === 'high' && '高'}
-                            {diff.significance === 'medium' && '中'}
-                            {diff.significance === 'low' && '低'}
-                          </Typography>
+                            variant="body2" 
+                            dangerouslySetInnerHTML={{ __html: diff.product_a_value }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography 
+                            variant="body2" 
+                            dangerouslySetInnerHTML={{ __html: diff.product_b_value }}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip 
+                            label="高" 
+                            size="small" 
+                            color="error" 
+                            sx={{ minWidth: '40px' }}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </CardContent>
-          </Card>
-          
-          {result.recommendation && (
-            <Card>
-              <CardContent>
-                <Typography variant="h5" gutterBottom>
-                  おすすめ
-                </Typography>
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
-                  {cleanHtmlText(result.recommendation)}
-                </Typography>
-              </CardContent>
-            </Card>
-          )}
-        </>
-      )}
+                    
+                  {/* Medium significance differences */}
+                  <TableRow>
+                    <TableCell 
+                      colSpan={4} 
+                      sx={{ bgcolor: 'warning.light', color: 'white', fontWeight: 'bold' }}
+                    >
+                      中程度の違い
+                    </TableCell>
+                  </TableRow>
+                  {result.differences
+                    .filter(diff => diff.significance === 'medium')
+                    .map((diff, idx) => (
+                      <TableRow key={`medium-${idx}`}>
+                        <TableCell><Typography variant="body2">{diff.category}</Typography></TableCell>
+                        <TableCell>
+                          <Typography 
+                            variant="body2" 
+                            dangerouslySetInnerHTML={{ __html: diff.product_a_value }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography 
+                            variant="body2" 
+                            dangerouslySetInnerHTML={{ __html: diff.product_b_value }}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip 
+                            label="中" 
+                            size="small" 
+                            color="warning" 
+                            sx={{ minWidth: '40px' }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    
+                  {/* Low significance differences */}
+                  <TableRow>
+                    <TableCell 
+                      colSpan={4} 
+                      sx={{ bgcolor: 'info.light', color: 'white', fontWeight: 'bold' }}
+                    >
+                      その他の違い
+                    </TableCell>
+                  </TableRow>
+                  {result.differences
+                    .filter(diff => diff.significance === 'low')
+                    .map((diff, idx) => (
+                      <TableRow key={`low-${idx}`}>
+                        <TableCell><Typography variant="body2">{diff.category}</Typography></TableCell>
+                        <TableCell>
+                          <Typography 
+                            variant="body2" 
+                            dangerouslySetInnerHTML={{ __html: diff.product_a_value }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography 
+                            variant="body2" 
+                            dangerouslySetInnerHTML={{ __html: diff.product_b_value }}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip 
+                            label="低" 
+                            size="small" 
+                            color="info" 
+                            sx={{ minWidth: '40px' }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </Box>
+      </Box>
     </Box>
   );
 } 

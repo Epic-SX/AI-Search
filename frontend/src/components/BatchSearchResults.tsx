@@ -1,35 +1,9 @@
 import React, { useState } from 'react';
-import { Box, Typography, Divider, Tabs, Tab, Paper, Tooltip, Button } from '@mui/material';
+import { Box, Typography, Paper, Tooltip, Button, Pagination, PaginationItem, Grid } from '@mui/material';
 import SearchResults from './SearchResults';
 import { SearchResult } from '@/types';
 import { FaDownload } from 'react-icons/fa';
 import { downloadMultipleProductsAsCSV } from '@/utils/csvExport';
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`search-tabpanel-${index}`}
-      aria-labelledby={`search-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ pt: 3 }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  );
-}
 
 interface BatchSearchResultsProps {
   results: SearchResult[];
@@ -37,10 +11,12 @@ interface BatchSearchResultsProps {
 }
 
 const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results, hasErrors = false }) => {
-  const [activeTab, setActiveTab] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue);
+  const handlePageChange = (event: React.ChangeEvent<unknown>, page: number) => {
+    setCurrentPage(page);
+    // Scroll to the top when changing pages
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   if (!results || results.length === 0) {
@@ -56,47 +32,38 @@ const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results, hasErr
     );
   }
 
-  // Function to render numbered circles without model numbers below
-  const renderModelNumbers = () => {
+  // Function to render numbered pagination
+  const renderPagination = () => {
     return (
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-        {results.map((result, index) => {
-          const modelNumber = result.product_info || 
-            (result.keywords && result.keywords.length > 0 ? result.keywords[0] : `検索 ${index + 1}`);
-          
-          return (
-            <Tooltip 
-              key={index}
-              title={modelNumber}
-              arrow
-            >
-              <Box 
-                sx={{ 
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  width: 36,
-                  height: 36,
-                  bgcolor: activeTab === index ? 'primary.main' : 'grey.300',
-                  color: activeTab === index ? 'white' : 'text.primary',
-                  borderRadius: '50%',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  fontSize: '1rem',
-                  transition: 'all 0.2s',
-                  boxShadow: activeTab === index ? '0 2px 4px rgba(0,0,0,0.2)' : 'none',
-                  '&:hover': {
-                    bgcolor: activeTab === index ? 'primary.dark' : 'grey.400',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.25)'
-                  }
-                }}
-                onClick={() => setActiveTab(index)}
-              >
-                {index + 1}
-              </Box>
-            </Tooltip>
-          );
-        })}
+      <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+        <Pagination
+          count={results.length}
+          page={currentPage}
+          onChange={handlePageChange}
+          color="primary"
+          size="large"
+          showFirstButton
+          showLastButton
+          renderItem={(item) => (
+            <PaginationItem
+              {...item}
+              sx={{
+                bgcolor: item.selected ? 'primary.main' : 'grey.200',
+                color: item.selected ? 'white' : 'text.primary',
+                fontWeight: 'bold',
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                '&:hover': {
+                  bgcolor: item.selected ? 'primary.dark' : 'grey.300',
+                }
+              }}
+            />
+          )}
+        />
       </Box>
     );
   };
@@ -145,6 +112,10 @@ const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results, hasErr
     return allProducts;
   };
 
+  // Get the current result based on the current page
+  const currentResult = results[currentPage - 1];
+  const currentModelNumber = getModelNumber(currentResult, currentPage - 1);
+
   return (
     <Box sx={{ mt: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -168,44 +139,90 @@ const BatchSearchResults: React.FC<BatchSearchResultsProps> = ({ results, hasErr
         {results.length}件の検索結果があります{hasErrors ? ' (一部のデータに取得エラーが発生しました)' : ''}
       </Typography>
       
-      {/* Display just numbered circles with tooltips for model numbers */}
-      {renderModelNumbers()}
+      {/* Display pagination at the top */}
+      {renderPagination()}
       
-      {/* Tabs for selecting which result to view */}
-      <Paper sx={{ width: '100%', mb: 2 }}>
-        <Tabs
-          value={activeTab}
-          onChange={handleTabChange}
-          indicatorColor="primary"
-          textColor="primary"
-          variant={results.length > 6 ? "scrollable" : "fullWidth"}
-          scrollButtons="auto"
-          aria-label="search results tabs"
-        >
-          {results.map((result, index) => (
-            <Tooltip 
-              key={index} 
-              title={getModelNumber(result, index)}
-              arrow
-            >
-              <Tab 
-                label={`${index + 1}`} 
-                id={`search-tab-${index}`}
-                aria-controls={`search-tabpanel-${index}`}
-              />
-            </Tooltip>
-          ))}
-        </Tabs>
-      </Paper>
+      {/* Display current search result in a grid layout */}
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={3}>
+          {/* Search keyword list on the left */}
+          <Paper sx={{ p: 2, bgcolor: '#f5f5f5', height: '100%' }}>
+            <Typography variant="h6" gutterBottom sx={{ borderBottom: '2px solid #1976d2', pb: 1 }}>
+              検索商品一覧
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', mt: 2 }}>
+              {results.map((result, index) => {
+                const modelNumber = getModelNumber(result, index);
+                const isActive = currentPage === index + 1;
+                
+                return (
+                  <Box 
+                    key={index}
+                    onClick={() => setCurrentPage(index + 1)}
+                    sx={{ 
+                      p: 1.5, 
+                      mb: 1, 
+                      borderRadius: 1,
+                      cursor: 'pointer',
+                      bgcolor: isActive ? '#1976d2' : 'transparent',
+                      color: isActive ? 'white' : 'inherit',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      '&:hover': {
+                        bgcolor: isActive ? '#1976d2' : 'rgba(25, 118, 210, 0.1)',
+                      }
+                    }}
+                  >
+                    <Box 
+                      sx={{ 
+                        width: 28,
+                        height: 28,
+                        borderRadius: '50%',
+                        bgcolor: isActive ? 'white' : '#1976d2',
+                        color: isActive ? '#1976d2' : 'white',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        fontWeight: 'bold',
+                        fontSize: '0.8rem',
+                        mr: 1.5
+                      }}
+                    >
+                      {index + 1}
+                    </Box>
+                    <Typography 
+                      variant="body2" 
+                      noWrap 
+                      sx={{ 
+                        fontWeight: isActive ? 'bold' : 'medium',
+                        maxWidth: '80%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}
+                    >
+                      {modelNumber}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Paper>
+        </Grid>
+        
+        <Grid item xs={12} md={9}>
+          {/* Main content - search results */}
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              検索キーワード: {currentModelNumber} ({currentPage} / {results.length})
+            </Typography>
+            <SearchResults results={currentResult} />
+          </Paper>
+        </Grid>
+      </Grid>
       
-      {results.map((result, index) => (
-        <TabPanel key={index} value={activeTab} index={index}>
-          <Typography variant="h6" gutterBottom>
-            検索キーワード: {getModelNumber(result, index)}
-          </Typography>
-          <SearchResults results={result} />
-        </TabPanel>
-      ))}
+      {/* Display pagination at the bottom too for convenience */}
+      {renderPagination()}
     </Box>
   );
 };
