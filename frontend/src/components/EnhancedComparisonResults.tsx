@@ -3,7 +3,8 @@ import { ComparisonResult, ProductInfo } from '../types';
 import { 
   Box, Typography, Button, Table, TableBody, TableCell, 
   TableContainer, TableHead, TableRow, Paper, Grid, Card, 
-  CardContent, Tabs, Tab, Divider, Tooltip, IconButton, CardHeader, Chip
+  CardContent, Tabs, Tab, Divider, Tooltip, IconButton, CardHeader, Chip,
+  CircularProgress
 } from '@mui/material';
 import { 
   FaDownload, FaFileCsv, FaFilePdf, FaClipboard, 
@@ -87,6 +88,12 @@ export default function EnhancedComparisonResults({ result }: EnhancedComparison
   const [comparisonCopied, setComparisonCopied] = useState(false);
   const [bulkDownloading, setBulkDownloading] = useState(false);
   const comparisonRef = useRef<HTMLDivElement>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [imageErrorA, setImageErrorA] = useState(false);
+  const [imageErrorB, setImageErrorB] = useState(false);
+  const [selectedProductA, setSelectedProductA] = useState<ProductInfo | null>(null);
+  const [selectedProductB, setSelectedProductB] = useState<ProductInfo | null>(null);
 
   // Preload Japanese font when component mounts
   useEffect(() => {

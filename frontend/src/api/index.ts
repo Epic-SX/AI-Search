@@ -365,18 +365,22 @@ export const checkBatchSearchStatus = async (batchId: string): Promise<any> => {
   }
 };
 
-// 最適なモデルを見つける
+// Define the ModelEvaluation type
+export interface ModelEvaluation {
+  model_number: string;
+  score: number;
+  comment: string;
+}
+
+// Define the BestModelResult type
 export interface BestModelResult {
   best_model_number: string;
   reason: string;
-  all_evaluations?: Array<{
-    model_number: string;
-    score: number;
-    comment: string;
-  }>;
+  all_evaluations?: ModelEvaluation[];
   search_results?: SearchResult;
 }
 
+// 最適なモデルを見つける
 export const findBestModel = async (modelNumbers: string[], criteria: string): Promise<BestModelResult> => {
   try {
     const response = await axios.post(`${API_BASE_URL}/api/find-best-model`, {
@@ -386,6 +390,29 @@ export const findBestModel = async (modelNumbers: string[], criteria: string): P
     return response.data;
   } catch (error) {
     console.error('Error finding best model:', error);
+    throw error;
+  }
+};
+
+// Define the KeywordResult type
+export interface KeywordResult {
+  model_number: string;
+  keyword: string;
+}
+
+// Batch generate keywords for multiple model numbers
+export const batchGenerateKeywords = async (
+  modelNumbers: string[],
+  customPrompt?: string
+): Promise<KeywordResult[]> => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/api/batch-generate-keywords`, {
+      model_numbers: modelNumbers,
+      custom_prompt: customPrompt
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error in batch keyword generation:', error);
     throw error;
   }
 }; 
